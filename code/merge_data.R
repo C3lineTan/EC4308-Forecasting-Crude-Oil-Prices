@@ -20,22 +20,19 @@ df5 <- read_csv("data/OPEC_crude_oil_production.csv") %>%
 df6 <- read_csv("data/PPIACO.csv") %>%
   rename(date = observation_date, producer_price_index = PPIACO)
 
-df7 <- read_csv("data/TOTCI.csv") %>%
-  rename(date = observation_date, commercial_and_industrial_loans = TOTCI)
-
-df8 <- read_csv("data/USD_index.csv") %>%
+df7 <- read_csv("data/USD_index.csv") %>%
   rename(usd_index = US_dollar_index)
 
-df9 <- read_csv("data/USREC.csv") %>%
+df8 <- read_csv("data/USREC.csv") %>%
   rename(date = observation_date, us_recession_indicator = USREC)
 
-df10 <- read_csv("data/IGREA.csv") %>%
+df9 <- read_csv("data/IGREA.csv") %>%
   rename(date = observation_date, global_real_economic_activity_index = IGREA)
 
-df11 <- read_csv("data/fred_data_clean.csv")
+df10 <- read_csv("data/fred_data_clean.csv")
 
 # Combine all dataframes into a list
-dfs <- list(df11, df1, df2, df3, df4, df5, df6, df7, df8, df9, df10)
+dfs <- list(df10, df1, df2, df3, df4, df5, df6, df7, df8, df9)
 
 # Convert all 'date' columns to Date type
 dfs <- lapply(dfs, function(x) {
