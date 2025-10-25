@@ -22,7 +22,7 @@ library(BVAR)
 Importing data
 
 ```{r}
-raw_data <-read.csv("merged_df_final.csv",check.names = FALSE)
+raw_data <-read.csv("data/merged_df_final.csv",check.names = FALSE)
 raw_data
 ```
 
@@ -217,7 +217,7 @@ changed_cols
 ```{r}
 #Adding more transformations after realising that the data from FRED does not help you do the transformations
 
-df_to_transform <- read.csv('name_changed.csv')
+df_to_transform <- read.csv('data/name_changed.csv')
 date <- df_to_transform$date
 cols_to_transform <- setdiff(names(df_to_transform), 'date')
 df_to_transform <- df_to_transform[, cols_to_transform, drop = FALSE]
@@ -243,8 +243,8 @@ final_transformed <- cbind(
   df_final[, setdiff(names(df_final), diff_name), drop = FALSE],
   additional_transformed
 )
-write.csv(final_transformed, "changingback.csv", row.names = FALSE)
-df_trans <- read.csv("final_full_name.csv")
+#write.csv(final_transformed, "changingback.csv", row.names = FALSE)
+df_trans <- read.csv("data/final_full_name.csv")
 
 
 
@@ -383,20 +383,20 @@ test_12m  <- dplyr::bind_cols(splits_12m$test["date"], select(test_12m,-date))
 ```
 
 ```{r}
-write.csv(train_1m, "train_1m.csv", row.names = FALSE)
-write.csv(train_3m, "train_3m.csv", row.names = FALSE)
-write.csv(train_6m, "train_6m.csv", row.names = FALSE)
-write.csv(train_12m, "train_12m.csv", row.names = FALSE)
+write.csv(train_1m, "1 Month/train_1m.csv", row.names = FALSE)
+write.csv(train_3m, "3 Month/train_3m.csv", row.names = FALSE)
+write.csv(train_6m, "6 Month/train_6m.csv", row.names = FALSE)
+write.csv(train_12m, "12 Month/train_12m.csv", row.names = FALSE)
 
-write.csv(test_1m, "test_1m.csv", row.names = FALSE)
-write.csv(test_3m, "test_3m.csv", row.names = FALSE)
-write.csv(test_6m, "test_6m.csv", row.names = FALSE)
-write.csv(test_12m, "test_12m.csv", row.names = FALSE)
+write.csv(test_1m, "1 Month/test_1m.csv", row.names = FALSE)
+write.csv(test_3m, "3 Month/test_3m.csv", row.names = FALSE)
+write.csv(test_6m, "6 Month/test_6m.csv", row.names = FALSE)
+write.csv(test_12m, "12 Month/test_12m.csv", row.names = FALSE)
 
-write.csv(final_df_1m, "final_df_1m.csv", row.names = FALSE)
-write.csv(final_df_3m, "final_df_3m.csv", row.names = FALSE)
-write.csv(final_df_6m, "final_df_6m.csv", row.names = FALSE)
-write.csv(final_df_12m, "final_df_12m.csv", row.names = FALSE)
+write.csv(final_df_1m, "1 Month/final_df_1m.csv", row.names = FALSE)
+write.csv(final_df_3m, "3 Month/final_df_3m.csv", row.names = FALSE)
+write.csv(final_df_6m, "6 Month/final_df_6m.csv", row.names = FALSE)
+write.csv(final_df_12m, "12 Month/final_df_12m.csv", row.names = FALSE)
 
 ```
 
