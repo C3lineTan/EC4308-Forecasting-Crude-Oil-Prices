@@ -58,8 +58,8 @@ ts_cv_fold <- function(train_x, train_y, val_x, val_y,
                        fit_fn, predict_fn, params) {
   model <- fit_fn(train_x, train_y, params)
   pred <- predict_fn(model, val_x)
-  rmse <- RMSE(pred, val_y)
-  return(rmse)
+  mse <- MSE(pred, val_y)
+  return(mse)
 }
 
 # function that splits the training data into recursive rolling window/expanding window 
@@ -75,11 +75,11 @@ recursive_split_cv <- function(train_x, n=5, cumulative=TRUE){
   return (cv_splits)
 }
 
-# function runs n folds of recursive cv splits and stores RMSE in a vector
+# function runs n folds of recursive cv splits and stores MSE in a vector
 recursive_ts_cv <- function(train_x, train_y, fit_fn, predict_fn, params, 
                             n_folds = 5, cumulative=TRUE) {
   cv_splits <- recursive_split_cv(train_x, n = n_folds, cumulative=TRUE)
-  rmse_values <- c()
+  mse_values <- c()
   for (i in seq_along(cv_splits$splits)) { # look through each split made
     
     split <- cv_splits$splits[[i]]
@@ -91,15 +91,15 @@ recursive_ts_cv <- function(train_x, train_y, fit_fn, predict_fn, params,
     x_val   <- val_idx[, -ncol(val_idx) , drop = FALSE]
     y_val   <- val_idx[[ncol(val_idx)]]
     
-    rmse = ts_cv_fold(x_train, y_train, x_val, y_val, fit_fn, predict_fn, params)
-    rmse_values = c(rmse_values, rmse)
+    mse = ts_cv_fold(x_train, y_train, x_val, y_val, fit_fn, predict_fn, params)
+    mse_values = c(mse_values, mse)
     
   }
-  return(rmse_values)
+  return(mse_values)
 }
 
-# main function combined. For each parameter combination, run recursive cv and obtain the RMSE vector for the folds. 
-# calculates mean RMSE and outputs a df of the parameter combinations and mean RMSE 
+# main function combined. For each parameter combination, run recursive cv and obtain the MSE vector for the folds. 
+# calculates mean MSE and outputs a df of the parameter combinations and mean MSE 
 # cummulative = TRUE calls for expanding window, FALSE calls for rolling window
 # n_folds specifies the amount of training data we start off with in the first window. 
 # eg. n_folds = 5 means we train with 1/5 of the data and make forecasts for the rest 4/5 of the data  
@@ -134,19 +134,19 @@ ts_cv_hyperparameter_tuning <- function(train_x, train_y,
     }
     
     # do recursive time series cv
-    fold_rmses <- recursive_ts_cv(train_x, train_y, fit_fn, predict_fn, params,
+    fold_mses <- recursive_ts_cv(train_x, train_y, fit_fn, predict_fn, params,
                                   n_folds, cumulative=TRUE)
     
-    # calculate mean RMSE across the folds
-    mean_rmse <- mean(fold_rmses, na.rm = TRUE)
+    # calculate mean MSE across the folds
+    mean_mse <- mean(fold_mses, na.rm = TRUE)
     
     # store results
     results[[i]] <- c(params, 
-                      list(mean_cv_rmse = mean_rmse
-                           #,each_fold_rmse = fold_rmses
+                      list(mean_cv_mse = mean_mse
+                           #,each_fold_mse = fold_mses
                            ))
     
-    cat("Mean CV RMSE:", round(mean_rmse, 4), "\n")
+    cat("Mean CV MSE:", round(mean_mse, 4), "\n")
   }
   
   results_df <- bind_rows(results) #results to data frame
