@@ -62,34 +62,41 @@ ts_cv_fold <- function(train_x, train_y, val_x, val_y,
   return(mse)
 }
 
-# function that splits the training data into recursive rolling window/expanding window 
-recursive_split_cv <- function(train_x, n=5, cumulative=TRUE){
-  size = nrow(train_x)%/%n
-  cv_splits <- time_series_cv(
-    train_x,
-    initial = size,   # training window size
-    assess = 1,    # validation window size
-    skip = 1,      # how far to move ahead each iteration
-    cumulative = cumulative  # expand the window if TRUE, rolling window if FALSE 
+# function that splits the training data
+recursive_split_cv <- function(train_data, n = 5, cumulative = TRUE){
+  size = nrow(train_data) %/% n
+  cv_splits <- rolling_origin(
+    train_data,
+    initial = size,
+    assess = 1,
+    skip = 1,
+    cumulative = cumulative 
   )
   return (cv_splits)
 }
 
-# function runs n folds of recursive cv splits and stores MSE in a vector
-recursive_ts_cv <- function(train_x, train_y, fit_fn, predict_fn, params, 
-                            n_folds = 5, cumulative=TRUE) {
-  cv_splits <- recursive_split_cv(train_x, n = n_folds, cumulative=TRUE)
+# function runs n folds of recursive cv splits
+recursive_ts_cv <- function(train_data, fit_fn, predict_fn, params, 
+                            n_folds = 5, cumulative = TRUE) {
+  cv_splits <- recursive_split_cv(train_data, 
+                                  n = n_folds, 
+                                  cumulative = cumulative)
+  
   mse_values <- c()
-  for (i in seq_along(cv_splits$splits)) { # look through each split made
+  for (i in seq_along(cv_splits$splits)) { 
     
     split <- cv_splits$splits[[i]]
-    train_idx <- analysis(split)
-    val_idx   <- assessment(split)
     
-    x_train <- train_idx[, -ncol(train_idx) , drop = FALSE]
-    y_train <- train_idx[[ncol(train_idx)]]
-    x_val   <- val_idx[, -ncol(val_idx) , drop = FALSE]
-    y_val   <- val_idx[[ncol(val_idx)]]
+    train_fold_data <- analysis(split)
+    val_fold_data   <- assessment(split)
+    
+    y_col_name <- names(train_fold_data)[ncol(train_fold_data)]
+    x_col_names <- setdiff(names(train_fold_data), c(y_col_name, "date"))
+    
+    x_train <- train_fold_data[, x_col_names, drop = FALSE]
+    y_train <- train_fold_data[[y_col_name]]
+    x_val   <- val_fold_data[, x_col_names, drop = FALSE]
+    y_val   <- val_fold_data[[y_col_name]]
     
     mse = ts_cv_fold(x_train, y_train, x_val, y_val, fit_fn, predict_fn, params)
     mse_values = c(mse_values, mse)
@@ -98,18 +105,13 @@ recursive_ts_cv <- function(train_x, train_y, fit_fn, predict_fn, params,
   return(mse_values)
 }
 
-# main function combined. For each parameter combination, run recursive cv and obtain the MSE vector for the folds. 
-# calculates mean MSE and outputs a df of the parameter combinations and mean MSE 
-# cummulative = TRUE calls for expanding window, FALSE calls for rolling window
-# n_folds specifies the amount of training data we start off with in the first window. 
-# eg. n_folds = 5 means we train with 1/5 of the data and make forecasts for the rest 4/5 of the data  
-ts_cv_hyperparameter_tuning <- function(train_x, train_y,
+# main function combined
+ts_cv_hyperparameter_tuning <- function(train_data,
                                         fit_fn, predict_fn,
                                         param_grid = NULL,
-                                        n_folds = 5, cumulative=TRUE,
+                                        n_folds, cumulative = TRUE,
                                         model_name = "model"){
   
-  # make all parameter combinations based on param_grid
   if (is.null(param_grid) || length(param_grid) == 0) {
     param_combinations <- list(list())
   } else {
@@ -118,8 +120,8 @@ ts_cv_hyperparameter_tuning <- function(train_x, train_y,
     param_combinations <- lapply(param_combinations, as.list)
   }
   
-  n_combinations <- length(param_combinations) #number of param combinations
-  results <- vector("list", n_combinations) #initialize results vector
+  n_combinations <- length(param_combinations)
+  results <- vector("list", n_combinations) 
   
   cat("Testing", n_combinations, "hyperparameter combination(s) for", model_name, "\n")
   
@@ -134,21 +136,18 @@ ts_cv_hyperparameter_tuning <- function(train_x, train_y,
     }
     
     # do recursive time series cv
-    fold_mses <- recursive_ts_cv(train_x, train_y, fit_fn, predict_fn, params,
-                                  n_folds, cumulative=TRUE)
+    # (Passes train_data, n_folds, and cumulative correctly)
+    fold_mses <- recursive_ts_cv(train_data, fit_fn, predict_fn, params,
+                                 n_folds = n_folds, 
+                                 cumulative = cumulative)
     
-    # calculate mean MSE across the folds
     mean_mse <- mean(fold_mses, na.rm = TRUE)
     
-    # store results
-    results[[i]] <- c(params, 
-                      list(mean_cv_mse = mean_mse
-                           #,each_fold_mse = fold_mses
-                           ))
+    results[[i]] <- c(params, list(mean_cv_mse = mean_mse))
     
-    cat("Mean CV MSE:", round(mean_mse, 4), "\n")
+    cat("Mean CV MSE:", round(mean_mse, 6), "\n")
   }
   
-  results_df <- bind_rows(results) #results to data frame
+  results_df <- bind_rows(results)
   return(results_df)
 }
