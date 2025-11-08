@@ -1,12 +1,18 @@
 source("results_function.R")
 library(glmnet)
+library(ranger)
+library(dplyr)
 
 # ============================================================================
 # IMPORT DATA
 # ============================================================================
 library(readr)
-train_1m <- read_csv("../1 Month/train_1m.csv")
-test_1m <- read_csv("../1 Month/test_1m.csv")
+train_1m <- read_csv("../1 Month/train_1m.csv") %>% as.data.frame() %>% # load data as df
+  {rownames(.) <- .$date; .} %>% select(-date) # make date the rowname and remove the column 
+test_1m <- read_csv("../1 Month/test_1m.csv") %>% as.data.frame() %>% 
+  {rownames(.) <- .$date; .} %>% select(-date)
+oilprices <- read_csv("../data/only_brent.csv") 
+testdates <- read_csv("../1 Month/test_1m.csv") %>% as.data.frame() %>% select(date)
 
 # ============================================================================
 # 1. LASSO REGRESSION
@@ -88,4 +94,23 @@ results_elastic <- ts_cv_hyperparameter_tuning(
   n_folds = 5, cumulative=TRUE,
   model_name = "Elastic Net"
 )
+
+
+# ============================================================================
+# Testing Rolling Window 
+# ============================================================================
+#fit the random forest on default settings, ignore ts data
+fit_ranger_1m <- function(train_x, train_y, params) { #honestly params kinda useless here
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 500, importance = "permutation")
+}
+
+predict_ranger_1m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+ranger_rolling_results_1m <- perform_rolling_forecast(train_1m, test_1m, fit_ranger_1m, predict_ranger_1m, "y_lr_1m")
+level_prices_1m <- level_price_results(ranger_rolling_results_1m, oilprices, testdates)
+mse_1m_ranger <- MSE(level_prices_1m$pred_level, level_prices_1m$actual_level)
 

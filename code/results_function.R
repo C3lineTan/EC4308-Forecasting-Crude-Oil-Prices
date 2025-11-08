@@ -2,6 +2,8 @@
 library(timetk)
 library(rsample)
 library(dplyr)
+library(parallel)
+
 
 ## MSE function 
 MSE <- function(pred, truth){  
@@ -127,6 +129,7 @@ ts_cv_hyperparameter_tuning <- function(train_data,
   
   for (i in seq_along(param_combinations)) {
     params <- param_combinations[[i]]
+    set.seed(1 + i)
     
     if (length(params) > 0) {
       cat("Combination", i, "/", n_combinations, ":", 
@@ -136,7 +139,6 @@ ts_cv_hyperparameter_tuning <- function(train_data,
     }
     
     # do recursive time series cv
-    # (Passes train_data, n_folds, and cumulative correctly)
     fold_mses <- recursive_ts_cv(train_data, fit_fn, predict_fn, params,
                                  n_folds = n_folds, 
                                  cumulative = cumulative)
@@ -150,4 +152,77 @@ ts_cv_hyperparameter_tuning <- function(train_data,
   
   results_df <- bind_rows(results)
   return(results_df)
+}
+
+
+###############################
+##  Rolling window forecast  ##
+###############################
+# rolling forecast function 
+# cols_to_remove includes the target column and date column (if exist)
+perform_rolling_forecast <- function(train_data, test_data, fit_fn, predict_fn, target_col, params=NULL, cols_to_remove=NULL) {
+  
+  all_data <- rbind(train_data, test_data)
+  n_train <- nrow(train_data)
+  n_test <- nrow(test_data)
+  
+  # empty vector to store predictions
+  predictions <- numeric(n_test)
+  all_cols_to_remove <- c(cols_to_remove, target_col)
+  
+  # Loop through each observation in the test set
+  for (i in 1:n_test) {
+    
+    # end index of the current training window
+    window_end_index <- n_train + i - 1
+    
+    # Training data is all data from the start up to the current point
+    current_train_data <- all_data[i:window_end_index, ]
+    # Test data is just the next single observation
+    current_test_data <- all_data[window_end_index + 1, ]
+    
+    # data split for current train x and y 
+    current_train_x <- current_train_data %>% select(-all_of(all_cols_to_remove))
+    current_train_y <- current_train_data[[target_col]]
+    
+    current_test_x <- current_test_data %>% select(-all_of(all_cols_to_remove))
+    
+    # Re-fit the model on the current training data
+    rolling_model <- fit_fn(
+      current_train_x,
+      current_train_y,
+      params = params
+    )
+    
+    # Predict the single next observation
+    prediction <- predict_fn(rolling_model, current_test_x)
+    predictions[i] <- prediction[1] # Use [1] to ensure it's a single value
+    
+    if (i %% 10 == 0 || i == n_test) {
+      print(paste("Completed rolling forecast for step:", i, "/", n_test))
+    }
+  }
+  
+  # Return a dataframe of actuals vs. predicted
+  results_df <- tibble(
+    actual = test_data[[target_col]],
+    predicted = predictions
+  )
+  
+  return(results_df)
+}
+
+
+################################
+##  level price MSE function  ##
+################################
+
+level_price_results <- function(rolling_results, prices, test_dates) {
+
+  rolling_results <- cbind(rolling_results,test_dates) %>% 
+    inner_join(prices, by = "date") %>%
+    mutate(pred_level = exp(predicted + log_brent), 
+           actual_level = exp(actual + log_brent))
+
+  return (rolling_results)
 }
