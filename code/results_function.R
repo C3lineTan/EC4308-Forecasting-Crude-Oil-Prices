@@ -46,6 +46,7 @@ directional_accuracy <- function(pred, truth){
     accuracy = accuracy,
     precision = precision,
     recall = recall,
+    specificity = specificity, 
     F1 = f1,
     counts = c(TP = TP, TN = TN, FP = FP, FN = FN)
   )
