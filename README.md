@@ -12,7 +12,7 @@ We compare the forecasting performance of the following methods:
 The code is stored in the following folders: 
 
 | Folder | Description | 
-| :---------- | :----------: |
+| ---------- | ---------- |
 |Data|This folder contains the raw data pulled from FRED-MD before data cleaning and preprocessing. |
 |Code|This folder contains the codes used for data cleaning, workhorse R script to obtain results and perform forecasts for every general method, DM test, etc.|
 |Model|Here we store the code for the different models. Lasso, Ridge and Elastic Net, PCR and SVR models for all forecast horizons are written in their respective files. The models for tree-based methods are split up into h-month forecasts. Finally, the combined tree results and variable importances are saved in a seperate RMarkdown file.|
