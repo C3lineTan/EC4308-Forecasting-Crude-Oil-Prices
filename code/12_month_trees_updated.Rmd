@@ -1,0 +1,313 @@
+This is a Rmd for 12 month forecast for the tree methods. There are a total of 4 tree methods as listed below:
+1) Single Decision Tree (tree and rpart packages)
+2) Bagging Trees
+3) Random Forests 
+4) XGBoost 
+
+From 3-4, for each method, we will form 2 models:
+- model with tuned hyperparameters using recursive CV 
+- off-the-shelf untuned model without consideration of time series data 
+
+We will also create a benchmark of the AR(1) model for comparison. 
+There will be a total of 8 models. 
+
+```{r packages}
+rm(list=ls())
+source("results_function.R") # recursive CV, loss, directional accuracy functions 
+```
+```{r}
+library(readr)
+library(tree) 
+library(rpart)
+library(rpart.plot)
+library(adabag)
+library(randomForest)
+library(ranger)
+library(xgboost)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+
+set.seed(1111)
+```
+
+```{r data}
+train_12m <- read_csv("../12 Month/train_12m.csv") %>% as.data.frame() %>% # load data as df
+  {rownames(.) <- .$date; .} %>% select(-date) # make date the rowname and remove the column 
+test_12m <- read_csv("../12 Month/test_12m.csv") %>% as.data.frame() %>% 
+  {rownames(.) <- .$date; .} %>% select(-date)
+
+oilprices <- read_csv("../data/only_brent.csv") 
+testdates <- read_csv("../12 Month/test_12m.csv") %>% as.data.frame() %>% select(date)
+```
+
+# Models 
+## Model 1: AR(1) benchmark 
+```{r}
+fit_ar1_12m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  lm(y~r_1m_l0,data=training_set)
+}
+
+predict_ar1_12m <- function(model,test_x){
+  predict(model, newdata = test_x)
+}
+
+ar1_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_ar1_12m, predict_ar1_12m, "y_lr_12m")
+ar1_level_results_12m <- level_price_results(ar1_rolling_results_12m, oilprices, testdates)
+mse_12m_ar1 <- MSE(ar1_level_results_12m$pred_level, ar1_level_results_12m$actual_level)
+mse_12m_ar1
+```
+
+## Model 2: Decision Tree Untuned (tree)
+```{r}
+fit_tree_12m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  mindev <- ifelse(is.null(params$mindev), 0.0001, params$mindev)
+  temp <- tree(y~.,data=training_set, mindev=mindev) # grow the tree
+  prune.tree(temp,best=7) #prune back to 7 leaves
+}
+
+predict_tree_12m <- function(model,test_x){
+  predict(model, newdata = test_x, type = "vector")
+}
+
+tree_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_tree_12m, predict_tree_12m, "y_lr_12m")
+tree_level_results_12m <- level_price_results(tree_rolling_results_12m, oilprices, testdates)
+mse_12m_tree <- MSE(tree_level_results_12m$pred_level, tree_level_results_12m$actual_level)
+mse_12m_tree
+```
+
+## Model 3: Decision Tree Untuned(rpart)
+```{r}
+fit_rpart_12m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  fit <- rpart(y~.,data=training_set,method = "anova") 
+  optimal_cp <- fit$cptable[which.min(fit$cptable[,"xerror"]), "CP"]
+  prune(fit, cp = optimal_cp)
+}
+
+predict_rpart_12m <- function(model,test_x){
+  predict(model, newdata = test_x, type = "vector")
+}
+
+rpart_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_rpart_12m, predict_rpart_12m, "y_lr_12m")
+rpart_level_results_12m <- level_price_results(rpart_rolling_results_12m, oilprices, testdates)
+mse_12m_rpart <- MSE(rpart_level_results_12m$pred_level, rpart_level_results_12m$actual_level)
+mse_12m_rpart
+```
+
+
+## Model 4: Bagging Trees Untuned
+```{r}
+#fit bagging trees on default settings, ignore ts data
+fit_bag_12m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 500, mtry =945, importance = "permutation")
+}
+
+predict_bag_12m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+bag_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_bag_12m, predict_bag_12m, "y_lr_12m")
+bag_level_results_12m <- level_price_results(bag_rolling_results_12m, oilprices, testdates)
+mse_12m_bag <- MSE(bag_level_results_12m$pred_level, bag_level_results_12m$actual_level)
+mse_12m_bag
+```
+
+
+## Model 5: Random Forest Untuned 
+```{r}
+#fit the random forest on default settings, ignore ts data
+fit_ranger_12m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 500, importance = "permutation")
+}
+
+predict_ranger_12m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+ranger_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_ranger_12m, predict_ranger_12m, "y_lr_12m")
+ranger_level_results_12m <- level_price_results(ranger_rolling_results_12m, oilprices, testdates)
+mse_12m_ranger <- MSE(ranger_level_results_12m$pred_level, ranger_level_results_12m$actual_level)
+mse_12m_ranger
+```
+
+
+
+## Model 6: Random Forest Tuned
+```{r}
+# P = 945, for regression mtry = P/3 = 315
+fit_rfgrid <- function(train_x, train_y, params) {
+  mtry <- ifelse(is.null(params$mtry), 315, params$mtry)
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.trees = 500, mtry = mtry,importance = "permutation")
+}
+
+predict_rfgrid <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+rf_component_grid <- list(
+  mtry = c(30, 90, 150, 210, 315) # no of variables sampled in each split, 945 for bagging 
+)
+
+rfgrid_12m <- ts_cv_hyperparameter_tuning(
+  train_data = train_12m,
+  fit_fn = fit_rfgrid,
+  predict_fn = predict_rfgrid,
+  param_grid = rf_component_grid,
+  n_folds = 5,                  
+  cumulative = TRUE,
+  model_name = "Random Forest 12m"
+)
+```
+
+```{r}
+# to select best hyperparameters for Random Forest
+rfgrid_12m %>% arrange(mean_cv_mse) %>% head(5) 
+# selected params: num.trees = 1000, mtry = 30
+# noise error = 0.0087
+```
+
+```{r}
+fit_rangertune_12m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 500, mtry = 315, importance = "permutation")
+}
+
+predict_ranger_12m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+rangertune_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_rangertune_12m, predict_ranger_12m, "y_lr_12m")
+rangertune_level_results_12m <- level_price_results(rangertune_rolling_results_12m, oilprices, testdates)
+mse_12m_rangertune <- MSE(rangertune_level_results_12m$pred_level, rangertune_level_results_12m$actual_level)
+mse_12m_rangertune
+```
+
+
+## Model 7: XGBoost Untuned
+```{r}
+#fit the XGBoost model on default settings, ignore ts data
+
+fit_xgb_12m <- function(train_x, train_y, params) {
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", nrounds = 500, objective = "reg:squarederror", 
+    verbose = 0, nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+}
+
+predict_xgb_12m <- function(model, test_x) {
+  test_matrix <- as.matrix(test_x)
+  predict(model, newdata = test_matrix)
+}
+
+xgb_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_xgb_12m, predict_xgb_12m, "y_lr_12m")
+xgb_level_results_12m <- level_price_results(xgb_rolling_results_12m, oilprices, testdates)
+mse_12m_xgb <- MSE(xgb_level_results_12m$pred_level, xgb_level_results_12m$actual_level)
+mse_12m_xgb
+```
+
+## Model 8: XGBoost Tuned 
+```{r}
+# P = 945, for regression mtry = P/3 = 315
+fit_xg <- function(train_x, train_y, params) {
+  eta = ifelse(is.null(params$eta), 0.1, params$eta)
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", nrounds = 500, eta = eta, 
+          objective = "reg:squarederror", verbose = 0, nthread = parallel::detectCores(), 
+          early_stopping_rounds = 10, max_depth = 5, tree_method = "hist")
+}
+
+predict_xg <- function(model,val_x){
+  val_matrix <- as.matrix(val_x)
+  predict(model, newdata = val_matrix)
+}
+
+xg_component_grid <- list(
+  eta = c(0.001, 0.025, 0.05, 0.1, 0.3)
+)
+
+xg_12m <- ts_cv_hyperparameter_tuning(
+  train_data = train_12m,
+  fit_fn = fit_xg,
+  predict_fn = predict_xg,
+  param_grid = xg_component_grid,
+  n_folds = 5,                  
+  cumulative = TRUE,
+  model_name = "XGBoost 12m"
+)
+```
+
+```{r}
+fit_xg_tune <- function(train_x, train_y, params) {
+  subsample = ifelse(is.null(params$subsample), 0.5, params$subsample)
+  colsample_bytree = ifelse(is.null(params$colsample_bytree), 0.5, params$colsample_bytree)
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", objective = "reg:squarederror", eta = 0.3, 
+          nrounds = 500, subsample=subsample, colsample_bytree=colsample_bytree, 
+          verbose = 0,nthread = parallel::detectCores(), 
+          early_stopping_rounds = 10, max_depth = 5, tree_method = "hist")
+}
+
+xg_component_grid_tune <- list(
+  subsample = c(0.5, 0.8),
+  colsample_bytree = c(0.5, 0.8)
+)
+
+xg_12m_tuned <- ts_cv_hyperparameter_tuning(
+  train_data = train_12m,
+  fit_fn = fit_xg_tune,
+  predict_fn = predict_xg,
+  param_grid = xg_component_grid_tune,
+  n_folds = 5,                  
+  cumulative = TRUE,
+  model_name = "XGBoost 12m tuned"
+)
+```
+
+```{r}
+# to select best hyperparameters for XGBoost
+xg_12m_tuned %>% arrange(mean_cv_mse) %>% head(5) 
+# selected params: nrounds = 500, gamma = 5, max_depth = 7, subsample = 0.5, colsample_bytree = 0.9
+# noise error = 0.0087
+```
+
+```{r}
+fit_xgbtune_12m <- function(train_x, train_y, params) {
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", nrounds = 500, max_depth = 7, subsample = 0.8,
+            colsample_bytree = 0.7, eta = 0.3, verbose = 0, objective = "reg:squarederror", 
+            nthread = parallel::detectCores(), early_stopping_rounds = 10,tree_method = "hist")
+}
+
+xgbtune_rolling_results_12m <- perform_rolling_forecast(train_12m, test_12m, fit_xgbtune_12m, predict_xgb_12m, "y_lr_12m")
+xgbtune_level_results_12m <- level_price_results(xgbtune_rolling_results_12m, oilprices, testdates)
+mse_12m_xgbtune <- MSE(xgbtune_level_results_12m$pred_level, xgbtune_level_results_12m$actual_level)
+mse_12m_xgbtune
+```
+
+
+# Results 
+```{r}
+mse_test_results_12m <- data.frame(
+  model = c("AR(1)", "Tree", "rpart", "Bagging Default", "RF Default", "RF", "XGB Default", "XGB"),
+  mse_12m = c(mse_12m_ar1, mse_12m_tree, mse_12m_rpart, mse_12m_bag,
+             mse_12m_ranger, mse_12m_rangertune, mse_12m_xgb, mse_12m_xgbtune)
+)
+mse_test_results_12m
+```
+
+```{r}
+#save.image(file = "12_month_trees_updated.RData")
+```
+
