@@ -1,0 +1,290 @@
+---
+title: "DM_test"
+author: "Tay Le Rui"
+date: "2025-11-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sandwich)
+library(forecast)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+source("code/results_function.R")
+```
+
+
+
+
+```{r}
+#Start
+suppressPackageStartupMessages({
+  library(dplyr); library(purrr); library(tibble); library(forecast)
+})
+
+dm_pairwise_index <- function(models,
+                              actual_ref,
+                              h = 1, power = 2, alpha = 0.05,
+                              pred_candidates   = c("pred_level"),
+                              actual_candidates = c("actual_level")) {
+
+  stopifnot(is.list(models), length(models) >= 2, !is.null(names(models)))
+
+  # --- pull actual vector from reference df ---
+  ac <- intersect(actual_candidates, names(actual_ref))
+  if (length(ac) == 0) stop("actual_ref must contain one of: ", paste(actual_candidates, collapse=", "))
+  actual_vec <- actual_ref[[ac[1]]]
+
+  # --- build wide error matrix (pred - actual), aligned by index ---
+  errs_wide <- map(models, function(df) {
+    pc <- intersect(pred_candidates, names(df))
+    if (length(pc) == 0)
+      stop("A model df lacks a prediction column. Expected one of: ",
+           paste(pred_candidates, collapse=", "))
+    pred <- df[[pc[1]]]
+    pred - actual_vec
+  }) %>%
+    as_tibble() %>%
+    setNames(names(models))
+
+  # truncate to common length and remove NAs
+  min_n <- min(nrow(errs_wide), length(actual_vec))
+  errs_wide <- errs_wide %>% dplyr::slice(1:min_n) %>% tidyr::drop_na()
+
+  # mean loss
+  mean_loss <- sapply(errs_wide, function(x) mean(abs(x)^power, na.rm = TRUE))
+
+  # output matrices
+  K   <- ncol(errs_wide)
+  nms <- colnames(errs_wide)
+  win_sig  <- matrix(FALSE, K, K, dimnames = list(nms, nms))
+  pvals    <- matrix(NA_real_, K, K, dimnames = list(nms, nms))
+  dm_stats <- matrix(NA_real_, K, K, dimnames = list(nms, nms))
+  diag(win_sig) <- NA
+
+  # ---- pairwise DM ----
+  for (i in 1:(K-1)) for (j in (i+1):K) {
+
+    e1 <- errs_wide[[i]]
+    e2 <- errs_wide[[j]]
+
+    d  <- (abs(e1)^power) - (abs(e2)^power)
+    sd_d <- stats::sd(d, na.rm = TRUE)
+    md_d <- mean(d, na.rm = TRUE)
+
+    # ====== CASE 1: zero-variance differential ======
+    if (!is.finite(sd_d) || sd_d == 0) {
+      # deterministic winner
+      if (md_d < 0) {          # model i always lower loss → better
+        stat <- -Inf; pv <- 0
+        win_sig[i,j] <- TRUE;  win_sig[j,i] <- FALSE
+
+      } else if (md_d > 0) {   # model j always lower loss → better
+        stat <-  Inf; pv <- 0
+        win_sig[j,i] <- TRUE;  win_sig[i,j] <- FALSE
+
+      } else {                 # identical losses everywhere
+        stat <- 0;    pv <- 1
+        win_sig[i,j] <- FALSE; win_sig[j,i] <- FALSE
+      }
+
+    # ====== CASE 2: normal DM test ======
+    } else {
+      dm <- forecast::dm.test(e1, e2, h = h, power = power, alternative = "two.sided")
+      stat <- unname(dm$statistic)
+      pv   <- unname(dm$p.value)
+
+      if (!is.na(pv) && pv < alpha) {
+        if (mean_loss[i] < mean_loss[j]) {
+          win_sig[i,j] <- TRUE;  win_sig[j,i] <- FALSE
+        } else if (mean_loss[j] < mean_loss[i]) {
+          win_sig[j,i] <- TRUE; win_sig[i,j] <- FALSE
+        }
+      }
+    }
+
+    # store results
+    dm_stats[i,j] <- stat; dm_stats[j,i] <- -stat
+    pvals[i,j]    <- pv;   pvals[j,i]    <- pv
+  }
+
+  list(
+    win_sig   = as.data.frame(win_sig),
+    pvals     = as.data.frame(pvals),
+    dm_stats  = as.data.frame(dm_stats),
+    mean_loss = mean_loss
+  )
+}
+
+
+
+
+
+
+```
+
+
+```{r}
+#Models
+ar1_1m <- read.csv("1 Month/Results/ar1_level_results_1m.csv")
+lasso_nosis_min_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_min_NOSIS.csv")
+lasso_nosis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_1se_NOSIS.csv")
+lasso_sis_min_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_min_SIS.csv")
+lasso_sis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_1se_SIS.csv")
+ridge_nosis_min_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_min_NOSIS.csv")
+ridge_nosis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_1se_NOSIS.csv")
+ridge_sis_min_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_min_SIS.csv")
+ridge_sis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_1se_SIS.csv")
+enet_nosis_min_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_min_NOSIS.csv")
+enet_nosis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_1se_NOSIS.csv")
+enet_sis_min_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_min_SIS.csv")
+enet_sis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_1se_SIS.csv")
+svr_1m <- read.csv("1 Month/Results/predictions_svr_h1.csv")
+pcr_1m <- read.csv("1 Month/Results/pcr_level_pred_1m.csv")
+pcalasso_1m <- read.csv("1 Month/Results/pcalasso_level_pred_1m.csv")
+pls_1m <- read.csv("1 Month/Results/pls_level_pred_1m.csv")
+tree_1m <- read.csv("1 Month/Results/tree_level_results_1m.csv")
+rpart_1m <- read.csv("1 Month/Results/rpart_level_results_1m.csv")
+bagging_1m <- read.csv("1 Month/Results/bag_level_results_1m.csv")
+rf_default_1m <- read.csv("1 Month/Results/ranger_level_results_1m.csv")
+rf_tuned_1m <- read.csv("1 Month/Results/rangertune_level_results_1m.csv")
+xgb_default_1m <- read.csv("1 Month/Results/xgb_level_results_1m.csv")
+xgb_tuned_1m <- read.csv("1 Month/Results/xgbtune_level_results_1m.csv")
+
+
+
+
+
+```
+
+
+
+```{r}
+price_transform <- list(
+  lasso_nosis_min_1m = lasso_nosis_min_1m,
+  lasso_nosis_1se_1m = lasso_nosis_1se_1m,
+  lasso_sis_min_1m   = lasso_sis_min_1m,
+  lasso_sis_1se_1m   = lasso_sis_1se_1m,
+  ridge_nosis_min_1m = ridge_nosis_min_1m,
+  ridge_nosis_1se_1m = ridge_nosis_1se_1m,
+  ridge_sis_min_1m   = ridge_sis_min_1m,
+  ridge_sis_1se_1m   = ridge_sis_1se_1m,
+  enet_nosis_min_1m  = enet_nosis_min_1m,
+  enet_nosis_1se_1m  = enet_nosis_1se_1m,
+  enet_sis_min_1m    = enet_sis_min_1m,
+  enet_sis_1se_1m    = enet_sis_1se_1m,
+  svr_1m = svr_1m
+)
+
+
+brent_price <- readr::read_csv("data/only_brent.csv")
+
+
+to_levels <- function(df) {
+  pred_col   <- intersect(c("pred_level","predicted","pred"), names(df))[1]
+  actual_col <- intersect(c("actual_level","actual","y_true"), names(df))[1]
+  if (is.na(pred_col) || is.na(actual_col)) stop("Missing predicted/actual columns in a df")
+
+  rolling_results <- tibble(
+    date      = as.Date(df$date),
+    predicted = df[[pred_col]],
+    actual    = df[[actual_col]]
+  )
+
+  out <- level_price_results(
+    rolling_results = rolling_results,
+    prices          = brent_price,
+    test_dates      = rolling_results$date
+  )
+
+  df$pred_level   <- out$pred_level
+  df$actual_level <- out$actual_level
+  df
+}
+
+
+for (k in seq_along(price_transform)) {
+  price_transform[[k]] <- to_levels(price_transform[[k]])[,c("pred_level","actual_level")]
+}              
+```
+```{r}
+
+models_all <- list(
+  "AR(1)"                 = ar1_1m,
+  "LASSO_No_SIS_min"      = price_transform$lasso_nosis_min_1m,
+  "LASSO_No_SIS_1se"      = price_transform$lasso_nosis_1se_1m,
+  "LASSO_SIS_min"         = price_transform$lasso_sis_min_1m,
+  "LASSO_SIS_1se"         = price_transform$lasso_sis_1se_1m,
+  "RIDGE_No_SIS_min"      = price_transform$ridge_nosis_min_1m,
+  "RIDGE_No_SIS_1se"      = price_transform$ridge_nosis_1se_1m,
+  "RIDGE_SIS_min"         = price_transform$ridge_sis_min_1m,
+  "RIDGE_SIS_1se"         = price_transform$ridge_sis_1se_1m,
+  "ELASTIC_NET_No_SIS_min"= price_transform$enet_nosis_min_1m,
+  "ELASTIC_NET_No_SIS_1se"= price_transform$enet_nosis_1se_1m,
+  "ELASTIC_NET_SIS_min"   = price_transform$enet_sis_min_1m,
+  "ELASTIC_NET_SIS_1se"   = price_transform$enet_sis_1se_1m,
+  "SVR"                   = price_transform$svr_1m,
+  "PCR"                   = pcr_1m,
+  "PCA+Lasso"             = pcalasso_1m,
+  "PLS"                   = pls_1m,
+  "DecisionTree(tree)"    = tree_1m,
+  "DecisionTree(rpart)"   = rpart_1m,
+  "Bagging_Default"       = bagging_1m,
+  "RF_Default"            = rf_default_1m,
+  "RF_Tuned"              = rf_tuned_1m,
+  "XGB_Default"           = xgb_default_1m,
+  "XGB_Tuned"             = xgb_tuned_1m
+)
+
+# Run pipeline (example: 1-month horizon, squared error, 5% alpha)
+out <- dm_pairwise_index (models_all,
+                          price_transform$svr_1m,                  # a data frame holding the actuals
+                          h = 1, power = 2, alpha = 0.05)
+
+# Inspect the logical “who beats whom” matrix:
+out$win_sig
+```
+
+```{r}
+mean_loss <- out$mean_loss
+best   <- names(sort(mean_loss))[1]
+second <- names(sort(mean_loss))[2]
+bench  <- "AR(1)"  # or "RW"
+
+t_best_vs_bench <- out$dm_stats[bench, best]
+p_best_vs_bench <- out$pvals[bench,  best]
+
+t_second_vs_best <- out$dm_stats[best, second]
+p_second_vs_best <- out$pvals[best,  second]
+
+```
+
+
+```{r}
+ts <- as.matrix(out$dm_stats); pv <- as.matrix(out$pvals)
+upper <- matrix(NA, nrow(ts), ncol(ts), dimnames = dimnames(ts))
+upper[upper.tri(upper)] <- ts[upper.tri(ts)]
+stars <- matrix("", nrow(ts), ncol(ts), dimnames = dimnames(ts))
+sel <- upper.tri(pv)
+stars[sel] <- ifelse(pv[sel] < .01, "***", ifelse(pv[sel] < .05, "**", ifelse(pv[sel] < .10, "*","")))
+printable <- matrix("", nrow(ts), ncol(ts), dimnames = dimnames(ts))
+printable[sel] <- sprintf("%.2f%s", upper[sel], stars[sel])
+as.data.frame(printable)
+
+```
+
+```{r}
+write.csv(as.data.frame(printable), "1 Month/Results/1_Month_DM_test_stats.csv")
+#write.csv(out$win_sig, "12 Month/Results/12_Month_DM_test.csv")
+```
+
+
+
