@@ -5,7 +5,7 @@ This project is made for the EC4308: Machine Learning and Economic Forecasting m
 We compare the forecasting performance of the following methods:
 1. AR(1)
 2. Lasso, Ridge and Elastic Net
-3. PCR
+3. PCR, PCA + Lasso, PLS
 4. Decision Trees, Bagging, Random Forests and XGBoost
 5. SVR
 
