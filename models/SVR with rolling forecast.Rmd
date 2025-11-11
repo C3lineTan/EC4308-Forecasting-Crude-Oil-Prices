@@ -276,7 +276,7 @@ result_df <- tibble::tibble(
 )
 
 
-write_csv(result_df, paste0("../Results/directional_accuracy_summary_",h,"_Month.csv"))
+#write_csv(result_df, paste0("../Results/directional_accuracy_summary_",h,"_Month.csv"))
 ```
 
 
@@ -327,7 +327,7 @@ summary_tbl <- tibble(
 
 
 
-readr::write_csv(summary_tbl, summary_path)
+#readr::write_csv(summary_tbl, summary_path)
 
 print(list(
   horizon_h    = h,
