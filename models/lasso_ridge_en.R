@@ -529,8 +529,8 @@ performance_table <- performance_table %>%
   ) %>%
   select(horizon, model, VaR_95, CVaR_95, Mean_Strategy_Return, MSE, RMSE, Level_MSE, Accuracy, Precision, Recall, F1, TP, TN, FP, FN, Num_Selected, best_hyperparam, SIS, lambda_rule)
 
-write.csv(performance_table, "results/lasso_ridge_en_results.csv", row.names = FALSE)
-print(performance_table)
+# write.csv(performance_table, "results/lasso_ridge_en_results.csv", row.names = FALSE)
+# print(performance_table)
 
 performance_transposed <- performance_table %>%
   # combine model, SIS, lambda_rule into one row identifier
