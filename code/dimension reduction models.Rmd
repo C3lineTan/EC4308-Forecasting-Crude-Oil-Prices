@@ -1,0 +1,921 @@
+---
+title: "pcr, pca+lasso, pls"
+output: html_document
+---
+
+#Libraries
+```{r}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(pls)
+library(glmnet)
+source("results_function.R")
+```
+
+
+## Data Preparation
+```{r}
+#################################################
+#                   1M                          #
+#################################################
+train_1m <- read_csv("train_1m.csv")%>% arrange(date)
+test_1m <- read_csv("test_1m.csv")%>% arrange(date)
+target_1m <- "y_lr_1m"
+x_train_1m <- train_1m %>% select(-date,-target_1m) 
+y_train_1m <- train_1m[[target_1m]]
+x_test_1m <- test_1m %>% select(-date,-target_1m)
+y_test_1m <- test_1m[[target_1m]]
+
+#################################################
+#                   3M                          #
+#################################################
+train_3m <- read_csv("train_3m.csv")%>% arrange(date)
+test_3m <- read_csv("test_3m.csv")%>% arrange(date)
+target_3m <- "y_lr_3m"
+x_train_3m <- train_3m %>% select(-date,-target_3m) 
+y_train_3m <- train_3m[[target_3m]]
+x_test_3m <- test_3m %>% select(-date,-target_3m)
+y_test_3m <- test_3m[[target_3m]]
+
+#################################################
+#                   6M                          #
+#################################################
+train_6m <- read_csv("train_6m.csv")%>% arrange(date)
+test_6m <- read_csv("test_6m.csv")%>% arrange(date)
+target_6m <- "y_lr_6m"
+x_train_6m <- train_6m %>% select(-date,-target_6m) 
+y_train_6m <- train_6m[[target_6m]]
+x_test_6m <- test_6m %>% select(-date,-target_6m)
+y_test_6m <- test_6m[[target_6m]]
+
+#################################################
+#                   12M                          #
+#################################################
+train_12m <- read_csv("train_12m.csv")%>% arrange(date)
+test_12m <- read_csv("test_12m.csv")%>% arrange(date)
+target_12m <- "y_lr_12m"
+x_train_12m <- train_12m %>% select(-date,-target_12m) 
+y_train_12m <- train_12m[[target_12m]]
+x_test_12m <- test_12m %>% select(-date,-target_12m)
+y_test_12m <- test_12m[[target_12m]]
+
+#################################################
+#                   only_brent                 #
+#################################################
+only_brent <- read_csv("only_brent.csv")%>% arrange(date)
+```
+
+## Principle Component Regression
+```{r}
+#1.1 pcr functions
+fit_pcr <- function(train_x, train_y, params) {
+  train_data <- as.data.frame(train_x)
+  train_data$y <- train_y
+  ncomp <- ifelse(is.null(params$ncomp), 10, params$ncomp)
+  pcr(y~., data=train_data, ncomp = ncomp, center = TRUE, scale = FALSE)
+}
+
+predict_pcr <- function(model,val_x){   
+  as.vector(predict(model, newdata = as.data.frame(val_x), ncomp = model$ncomp)) }
+
+pcr_component_grid <- list(ncomp = base::seq(1, 30, by = 5))
+
+################################################# 
+#                   1M                          # 
+#################################################
+#1.2 cv for optimal ncomp (coarse search)
+pcr_1m <- ts_cv_hyperparameter_tuning(
+    train_1m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = pcr_component_grid,
+    n_folds = 5,
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+pcr_1m
+
+opt_pcr_ncomp_1m <- pcr_1m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pcr_ncomp_1m
+
+#1.3 cv for optimal ncomp (fine search)
+fine_pcr_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pcr_ncomp_1m$ncomp - 4), 
+              to = opt_pcr_ncomp_1m$ncomp + 4, 
+              by = 1))
+
+fine_pcr_1m <- ts_cv_hyperparameter_tuning(
+    train_1m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = fine_pcr_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+fine_pcr_1m
+
+opt_pcr_ncomp_1m_final <- fine_pcr_1m %>% arrange(mean_cv_mse) %>% slice (1)
+pcr_ncomp_1m_final <- opt_pcr_ncomp_1m_final$ncomp
+
+#1.4 Rolling Window Forecast & Level Price MSE
+final_pcr_params_1m <- list(ncomp = pcr_ncomp_1m_final)
+test_dates_1m <- test_1m %>% select(date)
+
+# Run rolling forecast (gets log-diff predictions)
+pcr_rolling_preds_1m <- perform_rolling_forecast(
+  train_data = train_1m,
+  test_data = test_1m,
+  fit_fn = fit_pcr,
+  predict_fn = predict_pcr,
+  target_col = target_1m,
+  params = final_pcr_params_1m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcr_level_results_1m <- level_price_results(
+  rolling_results = pcr_rolling_preds_1m,
+  prices = only_brent,
+  test_dates = test_dates_1m
+)
+
+# Calculate final metrics
+pcr_level_mse_1m <- MSE(pcr_level_results_1m$pred_level, pcr_level_results_1m$actual_level)
+pcr_level_da_1m <- directional_accuracy(pcr_level_results_1m$predicted, pcr_level_results_1m$actual)
+pcr_level_var_1m <- VAR(pcr_level_results_1m, confidence_level = 0.95)$VaR_95
+pcr_level_pred_1m <- pcr_level_results_1m %>% select(date, pred_level)
+
+pcr_level_pred_1m
+pcr_level_mse_1m
+pcr_level_da_1m
+pcr_level_var_1m
+
+#################################################
+#                   3M                          #
+#################################################
+#1.2 cv for optimal ncomp (coarse search)
+pcr_3m <- ts_cv_hyperparameter_tuning(
+    train_3m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = pcr_component_grid,
+    n_folds = 5,
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+pcr_3m
+
+opt_pcr_ncomp_3m <- pcr_3m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pcr_ncomp_3m
+
+
+#1.3 cv for optimal ncomp (fine search)
+fine_pcr_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pcr_ncomp_3m$ncomp - 4), 
+              to = opt_pcr_ncomp_3m$ncomp + 4, 
+              by = 1))
+
+fine_pcr_3m <- ts_cv_hyperparameter_tuning(
+    train_3m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = fine_pcr_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+fine_pcr_3m
+
+opt_pcr_ncomp_3m_final <- fine_pcr_3m %>% arrange(mean_cv_mse) %>% slice (1)
+pcr_ncomp_3m_final <- opt_pcr_ncomp_3m_final$ncomp
+
+
+#1.4 Rolling Window Forecast & Level Price MSE
+final_pcr_params_3m <- list(ncomp = pcr_ncomp_3m_final)
+test_dates_3m <- test_3m %>% select(date)
+
+# Run rolling forecast (gets log-diff predictions)
+pcr_rolling_preds_3m <- perform_rolling_forecast(
+  train_data = train_3m,
+  test_data = test_3m,
+  fit_fn = fit_pcr,
+  predict_fn = predict_pcr,
+  target_col = target_3m,
+  params = final_pcr_params_3m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcr_level_results_3m <- level_price_results(
+  rolling_results = pcr_rolling_preds_3m,
+  prices = only_brent,
+  test_dates = test_dates_3m
+)
+
+# Calculate final metrics
+pcr_level_mse_3m <- MSE(pcr_level_results_3m$pred_level, pcr_level_results_3m$actual_level)
+pcr_level_da_3m <- directional_accuracy(pcr_level_results_3m$predicted, pcr_level_results_3m$actual)
+pcr_level_pred_3m <- pcr_level_results_3m %>% select(date, pred_level)
+pcr_level_var_3m <- VAR(pcr_level_results_3m, confidence_level = 0.95)$VaR_95
+
+pcr_level_pred_3m
+pcr_level_mse_3m
+pcr_level_da_3m
+pcr_level_var_3m
+
+#################################################
+#                   6M                          #
+#################################################
+#1.2 cv for optimal ncomp (coarse search)
+pcr_6m <- ts_cv_hyperparameter_tuning(
+    train_6m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = pcr_component_grid,
+    n_folds = 5,
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+pcr_6m
+
+opt_pcr_ncomp_6m <- pcr_6m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pcr_ncomp_6m
+
+
+#1.3 cv for optimal ncomp (fine search)
+fine_pcr_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pcr_ncomp_6m$ncomp - 4), 
+              to = opt_pcr_ncomp_6m$ncomp + 4, 
+              by = 1))
+
+fine_pcr_6m <- ts_cv_hyperparameter_tuning(
+    train_6m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = fine_pcr_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+fine_pcr_6m
+
+opt_pcr_ncomp_6m_final <- fine_pcr_6m %>% arrange(mean_cv_mse) %>% slice (1)
+pcr_ncomp_6m_final <- opt_pcr_ncomp_6m_final$ncomp
+
+
+#1.4 Rolling Window Forecast & Level Price MSE
+final_pcr_params_6m <- list(ncomp = pcr_ncomp_6m_final)
+test_dates_6m <- test_6m %>% select(date)
+
+# Run rolling forecast (gets log-diff predictions)
+pcr_rolling_preds_6m <- perform_rolling_forecast(
+  train_data = train_6m,
+  test_data = test_6m,
+  fit_fn = fit_pcr,
+  predict_fn = predict_pcr,
+  target_col = target_6m,
+  params = final_pcr_params_6m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcr_level_results_6m <- level_price_results(
+  rolling_results = pcr_rolling_preds_6m,
+  prices = only_brent,
+  test_dates = test_dates_6m
+)
+
+# Calculate final metrics
+pcr_level_mse_6m <- MSE(pcr_level_results_6m$pred_level, pcr_level_results_6m$actual_level)
+pcr_level_da_6m <- directional_accuracy(pcr_level_results_6m$predicted, pcr_level_results_6m$actual)
+pcr_level_pred_6m <- pcr_level_results_6m %>% select(date, pred_level)
+pcr_level_var_6m <- VAR(pcr_level_results_6m, confidence_level = 0.95)$VaR_95
+
+
+pcr_level_pred_6m
+pcr_level_mse_6m
+pcr_level_da_6m
+pcr_level_var_6m
+
+#################################################
+#                   12M                          #
+#################################################
+#1.2 cv for optimal ncomp (coarse search)
+pcr_12m <- ts_cv_hyperparameter_tuning(
+    train_12m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = pcr_component_grid,
+    n_folds = 5,
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+pcr_12m
+
+opt_pcr_ncomp_12m <- pcr_12m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pcr_ncomp_12m
+
+
+#1.3 cv for optimal ncomp (fine search)
+fine_pcr_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pcr_ncomp_12m$ncomp - 4), 
+              to = opt_pcr_ncomp_12m$ncomp + 4, 
+              by = 1))
+
+fine_pcr_12m <- ts_cv_hyperparameter_tuning(
+    train_12m,            
+    fit_fn = fit_pcr,
+    predict_fn = predict_pcr,
+    param_grid = fine_pcr_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PCR"
+  )
+fine_pcr_12m
+
+opt_pcr_ncomp_12m_final <- fine_pcr_12m %>% arrange(mean_cv_mse) %>% slice (1)
+pcr_ncomp_12m_final <- opt_pcr_ncomp_12m_final$ncomp
+
+
+#1.4 Rolling Window Forecast & Level Price MSE
+final_pcr_params_12m <- list(ncomp = pcr_ncomp_12m_final)
+test_dates_12m <- test_12m %>% select(date)
+
+# Run rolling forecast (gets log-diff predictions)
+pcr_rolling_preds_12m <- perform_rolling_forecast(
+  train_data = train_12m,
+  test_data = test_12m,
+  fit_fn = fit_pcr,
+  predict_fn = predict_pcr,
+  target_col = target_12m,
+  params = final_pcr_params_12m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcr_level_results_12m <- level_price_results(
+  rolling_results = pcr_rolling_preds_12m,
+  prices = only_brent,
+  test_dates = test_dates_12m
+)
+
+# Calculate final metrics
+pcr_level_mse_12m <- MSE(pcr_level_results_12m$pred_level, pcr_level_results_12m$actual_level)
+pcr_level_da_12m <- directional_accuracy(pcr_level_results_12m$predicted, pcr_level_results_12m$actual)
+pcr_level_pred_12m <- pcr_level_results_12m %>% select(date, pred_level)
+pcr_level_var_12m <- VAR(pcr_level_results_12m, confidence_level = 0.95)$VaR_95
+
+pcr_level_pred_12m
+pcr_level_mse_12m
+pcr_level_da_12m
+pcr_level_var_12m
+
+#compare PCR across time horizons
+pcr_level_results <- tibble(
+  Horizon = factor(c("1m", "3m", "6m", "12m"), levels = c("1m", "3m", "6m", "12m")),
+  Model = "PCR",
+  mse = c(pcr_level_mse_1m, pcr_level_mse_3m, pcr_level_mse_6m, pcr_level_mse_12m),
+  DA = c(pcr_level_da_1m$accuracy, pcr_level_da_3m$accuracy, pcr_level_da_6m$accuracy, pcr_level_da_12m$accuracy))
+pcr_level_results
+```
+
+#PCA + Lasso
+```{r}
+#lasso functions
+fit_pcalasso <- function(train_x, train_y, params) {
+  pca <- prcomp(train_x, center = TRUE, scale.= FALSE) #pca within the loop
+  x_train_pca <- pca$x
+  lambda <- if (!is.null(params$lambda)) params$lambda else 0.1
+  lasso <- glmnet(as.matrix(x_train_pca), train_y, alpha = 1, lambda = lambda)
+  list(pca_model = pca, model = lasso)
+}
+
+predict_pcalasso <- function(model_list, test_x) {
+  x_test_pca <- predict(model_list$pca_model, newdata = as.data.frame(test_x))
+  as.vector(predict(model_list$model, newx = as.matrix(x_test_pca)))
+}
+
+param_grid_lasso <- list(lambda = base::seq(0.90, 20, by = 1))
+
+#################################################
+#                   1M                          #
+#################################################
+
+pcalasso_1m <- ts_cv_hyperparameter_tuning(
+  train_data = train_1m,   
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  param_grid = param_grid_lasso,
+  n_folds = 5, cumulative=TRUE,
+  model_name = "PCA + Lasso"
+)
+
+opt_pcalasso_lambda_1m <- pcalasso_1m %>% arrange(mean_cv_mse) %>% slice (1)
+pcalasso_lambda_1m_final <- opt_pcalasso_lambda_1m$lambda
+
+#Rolling Window Forecast & Level Price MSE
+final_pcalasso_params_1m <- list(lambda = pcalasso_lambda_1m_final)
+
+pcalasso_rolling_preds_1m <- perform_rolling_forecast(
+  train_data = train_1m,
+  test_data = test_1m,
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  target_col = target_1m,
+  params = final_pcalasso_params_1m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcalasso_level_results_1m <- level_price_results(
+  rolling_results = pcalasso_rolling_preds_1m,
+  prices = only_brent,
+  test_dates = test_dates_1m
+)
+
+# Calculate final metrics
+pcalasso_level_mse_1m <- MSE(pcalasso_level_results_1m$pred_level, pcalasso_level_results_1m$actual_level)
+pcalasso_level_da_1m <- directional_accuracy(pcalasso_level_results_1m$predicted, pcalasso_level_results_1m$actual)
+pcalasso_level_pred_1m <- pcalasso_level_results_1m %>% select(date,pred_level)
+pcalasso_level_var_1m <- VAR(pcalasso_level_results_1m, confidence_level = 0.95)$VaR_95
+
+pcalasso_level_mse_1m
+pcalasso_level_da_1m
+pcalasso_level_pred_1m
+pcalasso_level_var_1m
+
+#################################################
+#                   3m                          #
+#################################################
+
+pcalasso_3m <- ts_cv_hyperparameter_tuning(
+  train_data = train_3m,   
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  param_grid = param_grid_lasso,
+  n_folds = 5, cumulative=TRUE,
+  model_name = "PCA + Lasso"
+)
+pcalasso_3m
+
+opt_pcalasso_lambda_3m <- pcalasso_3m %>% arrange(mean_cv_mse) %>% slice (1)
+pcalasso_lambda_3m_final <- opt_pcalasso_lambda_3m$lambda
+opt_pcalasso_lambda_3m_final
+
+
+#Rolling Window Forecast & Level Price MSE
+final_pcalasso_params_3m <- list(lambda = pcalasso_lambda_3m_final)
+
+pcalasso_rolling_preds_3m <- perform_rolling_forecast(
+  train_data = train_3m,
+  test_data = test_3m,
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  target_col = target_3m,
+  params = final_pcalasso_params_3m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcalasso_level_results_3m <- level_price_results(
+  rolling_results = pcalasso_rolling_preds_3m,
+  prices = only_brent,
+  test_dates = test_dates_3m
+)
+
+# Calculate final metrics
+pcalasso_level_mse_3m <- MSE(pcalasso_level_results_3m$pred_level, pcalasso_level_results_3m$actual_level)
+pcalasso_level_da_3m <- directional_accuracy(pcalasso_level_results_3m$predicted, pcalasso_level_results_3m$actual)
+pcalasso_level_pred_3m <- pcalasso_level_results_3m %>% select(date,pred_level)
+pcalasso_level_var_3m <- VAR(pcalasso_level_results_3m, confidence_level = 0.95)$VaR_95
+
+pcalasso_level_mse_3m
+pcalasso_level_da_3m
+pcalasso_level_pred_3m
+pcalasso_level_var_3m
+
+#################################################
+#                   6m                          #
+#################################################
+
+pcalasso_6m <- ts_cv_hyperparameter_tuning(
+  train_data = train_6m,   
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  param_grid = param_grid_lasso,
+  n_folds = 5, cumulative=TRUE,
+  model_name = "PCA + Lasso"
+)
+pcalasso_6m
+
+opt_pcalasso_lambda_6m <- pcalasso_6m %>% arrange(mean_cv_mse) %>% slice (1)
+pcalasso_lambda_6m_final <- opt_pcalasso_lambda_6m$lambda
+opt_pcalasso_lambda_6m_final
+
+
+#Rolling Window Forecast & Level Price MSE
+final_pcalasso_params_6m <- list(lambda = pcalasso_lambda_6m_final)
+
+pcalasso_rolling_preds_6m <- perform_rolling_forecast(
+  train_data = train_6m,
+  test_data = test_6m,
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  target_col = target_6m,
+  params = final_pcalasso_params_6m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcalasso_level_results_6m <- level_price_results(
+  rolling_results = pcalasso_rolling_preds_6m,
+  prices = only_brent,
+  test_dates = test_dates_6m
+)
+
+# Calculate final metrics
+pcalasso_level_mse_6m <- MSE(pcalasso_level_results_6m$pred_level, pcalasso_level_results_6m$actual_level)
+pcalasso_level_da_6m <- directional_accuracy(pcalasso_level_results_6m$predicted, pcalasso_level_results_6m$actual)
+pcalasso_level_pred_6m <- pcalasso_level_results_6m %>% select(date,pred_level)
+pcalasso_level_var_6m <- VAR(pcalasso_level_results_6m, confidence_level = 0.95)$VaR_95
+
+pcalasso_level_mse_6m
+pcalasso_level_da_6m
+pcalasso_level_pred_6m
+pcalasso_level_var_6m
+
+#################################################
+#                   12m                          #
+#################################################
+
+pcalasso_12m <- ts_cv_hyperparameter_tuning(
+  train_data = train_12m,   
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  param_grid = param_grid_lasso,
+  n_folds = 5, cumulative=TRUE,
+  model_name = "PCA + Lasso"
+)
+pcalasso_12m
+
+opt_pcalasso_lambda_12m <- pcalasso_12m %>% arrange(mean_cv_mse) %>% slice (1)
+pcalasso_lambda_12m_final <- opt_pcalasso_lambda_12m$lambda
+opt_pcalasso_lambda_12m_final
+
+
+#Rolling Window Forecast & Level Price MSE
+final_pcalasso_params_12m <- list(lambda = pcalasso_lambda_12m_final)
+
+pcalasso_rolling_preds_12m <- perform_rolling_forecast(
+  train_data = train_12m,
+  test_data = test_12m,
+  fit_fn = fit_pcalasso,
+  predict_fn = predict_pcalasso,
+  target_col = target_12m,
+  params = final_pcalasso_params_12m,
+  cols_to_remove = "date" 
+)
+
+# Convert to level prices
+pcalasso_level_results_12m <- level_price_results(
+  rolling_results = pcalasso_rolling_preds_12m,
+  prices = only_brent,
+  test_dates = test_dates_12m
+)
+
+# Calculate final metrics
+pcalasso_level_mse_12m <- MSE(pcalasso_level_results_12m$pred_level, pcalasso_level_results_12m$actual_level)
+pcalasso_level_da_12m <- directional_accuracy(pcalasso_level_results_12m$predicted, pcalasso_level_results_12m$actual)
+pcalasso_level_pred_12m <- pcalasso_level_results_12m %>% select(date,pred_level)
+pcalasso_level_var_12m <- VAR(pcalasso_level_results_12m, confidence_level = 0.95)$VaR_95
+
+pcalasso_level_mse_12m
+pcalasso_level_da_12m
+pcalasso_level_pred_12m
+pcalasso_level_var_12m
+
+#compare PCA Lasso across time horizons
+pcalasso_level_results <- tibble(
+  Horizon = factor(c("1m", "3m", "6m", "12m"), levels = c("1m", "3m", "6m", "12m")),
+  Model = "pcalasso",
+  mse = c(pcalasso_level_mse_1m, pcalasso_level_mse_3m, pcalasso_level_mse_6m, pcalasso_level_mse_12m),
+  DA = c(pcalasso_level_da_1m$accuracy, pcalasso_level_da_3m$accuracy, pcalasso_level_da_6m$accuracy, pcalasso_level_da_12m$accuracy))
+pcalasso_level_results
+```
+
+
+## Partial Least Squares
+```{r}
+#3.1 pls functions
+fit_pls <- function(train_x, train_y, params) {
+  train_data <- as.data.frame(train_x)
+  train_data$y <- train_y
+  ncomp <- ifelse(is.null(params$ncomp), 10, params$ncomp)
+  plsr(y~., data=train_data, ncomp = ncomp, center = TRUE, scale = FALSE)
+}
+
+predict_pls <- function(model,val_x){   
+  as.vector(predict(model, newdata = as.data.frame(val_x), ncomp = model$ncomp)) }
+
+pls_component_grid <- list(ncomp = base::seq(1, 30, by = 5))
+
+#################################################
+#                   1M                          #
+#################################################
+#3.2 cv to find optimal ncomp (coarse)
+pls_1m <- ts_cv_hyperparameter_tuning(
+  train_1m,
+  fit_fn = fit_pls,
+  predict_fn = predict_pls,
+  param_grid = pls_component_grid,
+  n_folds = 5, 
+  cumulative = TRUE,
+  model_name = "PLS"
+)
+pls_1m
+
+opt_pls_ncomp_1m <- pls_1m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_1m
+
+#3.3 cv to find optimal ncomp (fine)
+fine_pls_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pls_ncomp_1m$ncomp - 4), 
+              to = opt_pls_ncomp_1m$ncomp + 4, 
+              by = 1))
+
+fine_pls_1m <- ts_cv_hyperparameter_tuning(
+    train_1m,
+    fit_fn = fit_pls,
+    predict_fn = predict_pls,
+    param_grid = fine_pls_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PLS"
+  )
+fine_pls_1m
+
+opt_pls_ncomp_1m_final <- fine_pls_1m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_1m_final
+pls_ncomp_1m_final <- opt_pls_ncomp_1m_final$ncomp
+
+#3.4 train and test final model
+final_pls_params_1m <- list(ncomp = pls_ncomp_1m_final)
+test_dates_1m <- test_1m %>% select(date)
+
+pls_rolling_preds_1m <- perform_rolling_forecast(train_1m, test_1m, fit_pls, predict_pls, target_1m, final_pls_params_1m, "date")
+pls_level_results_1m <- level_price_results(pls_rolling_preds_1m, only_brent, test_dates_1m)
+
+pls_level_pred_1m <- pls_level_results_1m %>% select(date, pred_level)
+pls_level_mse_1m <- MSE(pls_level_results_1m$pred_level, pls_level_results_1m$actual_level)
+pls_level_da_1m <- directional_accuracy(pls_level_results_1m$predicted, pls_level_results_1m$actual)
+pls_level_var_1m <- VAR(pls_level_results_1m, confidence_level = 0.95)$VaR_95
+pls_level_var_1m
+
+#################################################
+#                   3M                          #
+#################################################
+#3.2 cv to find optimal ncomp (coarse)
+pls_3m <- ts_cv_hyperparameter_tuning(
+  train_3m,
+  fit_fn = fit_pls,
+  predict_fn = predict_pls,
+  param_grid = pls_component_grid,
+  n_folds = 5, 
+  cumulative = TRUE,
+  model_name = "PLS"
+)
+pls_3m
+
+opt_pls_ncomp_3m <- pls_3m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_3m
+
+#3.3 cv to find optimal ncomp (fine)
+fine_pls_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pls_ncomp_3m$ncomp - 4), 
+              to = opt_pls_ncomp_3m$ncomp + 4, 
+              by = 1))
+
+fine_pls_3m <- ts_cv_hyperparameter_tuning(
+    train_3m,
+    fit_fn = fit_pls,
+    predict_fn = predict_pls,
+    param_grid = fine_pls_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PLS"
+  )
+fine_pls_3m
+
+opt_pls_ncomp_3m_final <- fine_pls_3m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_3m_final
+pls_ncomp_3m_final <- opt_pls_ncomp_3m_final$ncomp
+
+#3.4 train and test final model
+final_pls_params_3m <- list(ncomp = pls_ncomp_3m_final)
+test_dates_3m <- test_3m %>% select(date)
+
+pls_rolling_preds_3m <- perform_rolling_forecast(train_3m, test_3m, fit_pls, predict_pls, target_3m, final_pls_params_3m, "date")
+pls_level_results_3m <- level_price_results(pls_rolling_preds_3m, only_brent, test_dates_3m)
+
+pls_level_pred_3m <- pls_level_results_3m %>% select(date, pred_level)
+pls_level_mse_3m <- MSE(pls_level_results_3m$pred_level, pls_level_results_3m$actual_level)
+pls_level_da_3m <- directional_accuracy(pls_level_results_3m$predicted, pls_level_results_3m$actual)
+pls_level_var_3m <- VAR(pls_level_results_3m, confidence_level = 0.95)$VaR_95
+pls_level_var_3m
+
+#################################################
+#                   6M                          #
+#################################################
+#3.2 cv to find optimal ncomp (coarse)
+pls_6m <- ts_cv_hyperparameter_tuning(
+  train_6m,
+  fit_fn = fit_pls,
+  predict_fn = predict_pls,
+  param_grid = pls_component_grid,
+  n_folds = 5, 
+  cumulative = TRUE,
+  model_name = "PLS"
+)
+pls_6m
+
+opt_pls_ncomp_6m <- pls_6m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_6m
+
+#3.3 cv to find optimal ncomp (fine)
+fine_pls_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pls_ncomp_6m$ncomp - 4), 
+              to = opt_pls_ncomp_6m$ncomp + 4, 
+              by = 1))
+
+fine_pls_6m <- ts_cv_hyperparameter_tuning(
+    train_6m,
+    fit_fn = fit_pls,
+    predict_fn = predict_pls,
+    param_grid = fine_pls_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PLS"
+  )
+fine_pls_6m
+
+opt_pls_ncomp_6m_final <- fine_pls_6m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_6m_final
+pls_ncomp_6m_final <- opt_pls_ncomp_6m_final$ncomp
+
+#3.4 train and test final model
+final_pls_params_6m <- list(ncomp = pls_ncomp_6m_final)
+test_dates_6m <- test_6m %>% select(date)
+
+pls_rolling_preds_6m <- perform_rolling_forecast(train_6m, test_6m, fit_pls, predict_pls, target_6m, final_pls_params_6m, "date")
+pls_level_results_6m <- level_price_results(pls_rolling_preds_6m, only_brent, test_dates_6m)
+
+pls_level_pred_6m <- pls_level_results_6m %>% select(date, pred_level)
+pls_level_mse_6m <- MSE(pls_level_results_6m$pred_level, pls_level_results_6m$actual_level)
+pls_level_da_6m <- directional_accuracy(pls_level_results_6m$predicted, pls_level_results_6m$actual)
+pls_level_var_6m <- VAR(pls_level_results_6m, confidence_level = 0.95)$VaR_95
+pls_level_var_6m
+
+#################################################
+#                   12M                          #
+#################################################
+#3.2 cv to find optimal ncomp (coarse)
+pls_12m <- ts_cv_hyperparameter_tuning(
+  train_12m,
+  fit_fn = fit_pls,
+  predict_fn = predict_pls,
+  param_grid = pls_component_grid,
+  n_folds = 5, 
+  cumulative = TRUE,
+  model_name = "PLS"
+)
+pls_12m
+
+opt_pls_ncomp_12m <- pls_12m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_12m
+
+#3.3 cv to find optimal ncomp (fine)
+fine_pls_component_grid <- list(
+  ncomp = seq(from = max(1, opt_pls_ncomp_12m$ncomp - 4), 
+              to = opt_pls_ncomp_12m$ncomp + 4, 
+              by = 1))
+
+fine_pls_12m <- ts_cv_hyperparameter_tuning(
+    train_12m,
+    fit_fn = fit_pls,
+    predict_fn = predict_pls,
+    param_grid = fine_pls_component_grid,
+    n_folds = 5,                  
+    cumulative = TRUE,
+    model_name = "PLS"
+  )
+fine_pls_12m
+
+opt_pls_ncomp_12m_final <- fine_pls_12m %>% arrange(mean_cv_mse) %>% slice (1)
+opt_pls_ncomp_12m_final
+pls_ncomp_12m_final <- opt_pls_ncomp_12m_final$ncomp
+
+#3.4 train and test final model
+final_pls_params_12m <- list(ncomp = pls_ncomp_12m_final)
+test_dates_12m <- test_12m %>% select(date)
+
+pls_rolling_preds_12m <- perform_rolling_forecast(train_12m, test_12m, fit_pls, predict_pls, target_12m, final_pls_params_12m, "date")
+pls_level_results_12m <- level_price_results(pls_rolling_preds_12m, only_brent, test_dates_12m)
+
+pls_level_pred_12m <- pls_level_results_12m %>% select(date, pred_level)
+pls_level_mse_12m <- MSE(pls_level_results_12m$pred_level, pls_level_results_12m$actual_level)
+pls_level_da_12m <- directional_accuracy(pls_level_results_12m$predicted, pls_level_results_12m$actual)
+pls_level_var_12m <- VAR(pls_level_results_12m, confidence_level = 0.95)$VaR_95
+pls_level_var_12m
+
+#compare PLS across time horizons
+pls_level_results <- tibble(
+  Horizon = factor(c("1m", "3m", "6m", "12m"), levels = c("1m", "3m", "6m", "12m")),
+  Model = "pls",
+  mse = c(pls_level_mse_1m, pls_level_mse_3m, pls_level_mse_6m, pls_level_mse_12m),
+  DA = c(pls_level_da_1m$accuracy, pls_level_da_3m$accuracy, pls_level_da_6m$accuracy, pls_level_da_12m$accuracy))
+pls_level_results
+```
+
+##4. Comparison across models within and across time horizon
+```{r}
+# 5.1 Consolidate all results into one table
+all_model_results <- tibble(
+  Model = c(
+    "PCR", "PCR", "PCR", "PCR",
+    "PCA+Lasso", "PCA+Lasso", "PCA+Lasso", "PCA+Lasso",
+    "PLS", "PLS", "PLS", "PLS"
+  ),
+  Horizon = rep(c("1m", "3m", "6m", "12m"), 3),
+  
+MSE = c(
+    pcr_level_mse_1m, pcr_level_mse_3m, pcr_level_mse_6m, pcr_level_mse_12m,
+    pcalasso_level_mse_1m, pcalasso_level_mse_3m, pcalasso_level_mse_6m, pcalasso_level_mse_12m,
+    pls_level_mse_1m, pls_level_mse_3m, pls_level_mse_6m, pls_level_mse_12m
+  ),
+  
+  DA = c(
+    pcr_level_da_1m$accuracy, pcr_level_da_3m$accuracy, pcr_level_da_6m$accuracy, pcr_level_da_12m$accuracy,
+    pcalasso_level_da_1m$accuracy, pcalasso_level_da_3m$accuracy, pcalasso_level_da_6m$accuracy, pcalasso_level_da_12m$accuracy,
+    pls_level_da_1m$accuracy, pls_level_da_3m$accuracy, pls_level_da_6m$accuracy, pls_level_da_12m$accuracy
+  ),
+
+  var = c(
+    pcr_level_var_1m, pcr_level_var_3m, pcr_level_var_6m, pcr_level_var_12m,
+    pcalasso_level_var_1m, pcalasso_level_var_3m, pcalasso_level_var_6m, pcalasso_level_var_12m,
+    pls_level_var_1m, pls_level_var_3m, pls_level_var_6m, pls_level_var_12m
+  )
+)
+
+all_model_results <- all_model_results %>%
+  mutate(Horizon = factor(Horizon, levels = c("1m", "3m", "6m", "12m")))
+all_model_results
+
+#MSE Comparison
+mse_matrix <- all_model_results %>%
+  select(Model, Horizon, MSE) %>%
+  pivot_wider(names_from = Horizon, values_from = MSE) %>%
+  mutate(across(where(is.numeric), ~ round(., 5))) # Round for clarity
+mse_matrix
+
+#DA Comparison
+da_matrix <- all_model_results %>%
+  select(Model, Horizon, DA) %>%
+  pivot_wider(names_from = Horizon, values_from = DA) %>%
+  mutate(across(where(is.numeric), ~ round(., 3))) # Round for clarity
+da_matrix
+
+var_matrix <- all_model_results %>%
+  select(Model, Horizon, var) %>%
+  pivot_wider(names_from = Horizon, values_from = var) %>%
+  mutate(across(where(is.numeric), ~ round(., 3))) # Round for clarity
+var_matrix
+
+```
+Exporting Predicted Levels
+```{r}
+# 1m
+write_csv(pcr_level_pred_1m, "pcr_level_pred_1m.csv")
+write_csv(pcalasso_level_pred_1m, "pcalasso_level_pred_1m.csv")
+write_csv(pls_level_pred_1m, "pls_level_pred_1m.csv")
+
+# 3m
+write_csv(pcr_level_pred_3m, "pcr_level_pred_3m.csv")
+write_csv(pcalasso_level_pred_3m, "pcalasso_level_pred_3m.csv")
+write_csv(pls_level_pred_3m, "pls_level_pred_3m.csv")
+
+# 6m
+write_csv(pcr_level_pred_6m, "pcr_level_pred_6m.csv")
+write_csv(pcalasso_level_pred_6m, "pcalasso_level_pred_6m.csv")
+write_csv(pls_level_pred_6m, "pls_level_pred_6m.csv")
+
+# 12m
+write_csv(pcr_level_pred_12m, "pcr_level_pred_12m.csv")
+write_csv(pcalasso_level_pred_12m, "pcalasso_level_pred_12m.csv")
+write_csv(pls_level_pred_12m, "pls_level_pred_12m.csv")
+```
+
+
+

@@ -1,0 +1,277 @@
+---
+title: "eda"
+output: html_document
+---
+```{r warning=FALSE}
+library(tidyverse)
+library(forecast)
+library(lubridate)
+library(corrplot)
+library(car)
+library(corrr)
+library(patchwork)
+```
+
+
+#Preparing Dataset
+```{r warning=FALSE}
+############################
+#            1m            #
+############################
+df_1m <- read_csv('final_df_1m.csv')%>% 
+  mutate(Horizon = "1m")
+df_1m$date <- as.Date(df_1m$date)
+summary(df_1m$y_lr_1m)
+
+############################
+#            3m            #
+############################
+df_3m <- read_csv('final_df_3m.csv')%>% 
+  mutate(Horizon = "3m")
+df_3m$date <- as.Date(df_3m$date)
+summary(df_3m$y_lr_3m)
+
+############################
+#            6m            #
+############################
+df_6m <- read_csv('final_df_6m.csv')%>% 
+  mutate(Horizon = "6m")
+df_6m$date <- as.Date(df_6m$date)
+summary(df_6m$y_lr_6m)
+
+############################
+#            12m            #
+############################
+df_12m <- read_csv('final_df_12m.csv')%>% 
+  mutate(Horizon = "12m")
+df_12m$date <- as.Date(df_12m$date)
+summary(df_12m$y_lr_12m)
+
+all_horizons_df <- bind_rows(df_1m, df_3m, df_6m, df_12m)
+all_horizons_df <- all_horizons_df %>%
+  mutate(Horizon = factor(Horizon, levels = c("1m", "3m", "6m", "12m")))
+```
+
+# Time Plot Analysis
+```{r}
+# 1m
+time_plot_1m <- ggplot(df_1m, aes(x = date, y = y_lr_1m)) +
+  geom_line(color = "steelblue") +
+  labs(title = "Time Plot of Log Oil Price Returns (1m)", x = NULL, y = "Log Return") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 11))
+
+# 3m
+time_plot_3m <- ggplot(df_3m, aes(x = date, y = y_lr_3m)) +
+  geom_line(color = "darkorange") +
+  labs(title = "Time Plot of Log Oil Price Returns (3m)", x = NULL, y = NULL) +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 11))
+
+# 6m
+time_plot_6m <- ggplot(df_6m, aes(x = date, y = y_lr_6m)) +
+  geom_line(color = "darkgreen") +
+  labs(title = "Time Plot of Log Oil Price Returns (6m)", x = "Date", y = "Log Return") +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 11))
+
+# 12m
+time_plot_12m <- ggplot(df_12m, aes(x = date, y = y_lr_12m)) +
+  geom_line(color = "darkred") +
+  labs(title = "Time Plot of Log Oil Price Returns (12m)", x = "Date", y = NULL) +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 11))
+
+(time_plot_1m + time_plot_3m) / (time_plot_6m + time_plot_12m)
+```
+
+
+# Density Plot Analysis
+```{r}
+# 1m
+density_plot_1m <- ggplot(df_1m, aes(x = y_lr_1m)) +
+  geom_density(color = "steelblue", linewidth = 1) +
+  labs(title = "Log Return Density (1m)", x = NULL, y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 11))
+
+# 3m
+density_plot_3m <- ggplot(df_3m, aes(x = y_lr_3m)) +
+  geom_density(color = "darkorange", linewidth = 1) +
+  labs(title = "Log Return Density (3m)", x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 11))
+
+# 6m
+density_plot_6m <- ggplot(df_6m, aes(x = y_lr_6m)) +
+  geom_density(color = "darkgreen", linewidth = 1) +
+  labs(title = "Log Return Density (6m)", x = "Log Return", y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 11))
+
+# 12m
+density_plot_12m <- ggplot(df_12m, aes(x = y_lr_12m)) +
+  geom_density(color = "darkred", linewidth = 1) +
+  labs(title = "Log Return Density (12m)", x = "Log Return", y = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 11))
+
+(density_plot_1m + density_plot_3m) / (density_plot_6m + density_plot_12m)
+```
+# Autocorrelation Analysis
+```{r}
+target_ts_1m <- ts(df_1m$y_lr_1m, frequency = 12)
+target_ts_3m <- ts(df_3m$y_lr_3m, frequency = 12)
+target_ts_6m <- ts(df_6m$y_lr_6m, frequency = 12)
+target_ts_12m <- ts(df_12m$y_lr_12m, frequency = 12)
+
+par(mfrow = c(2, 2))
+
+forecast::Acf(target_ts_1m, main = "ACF for Log Returns (1m)", na.action = na.pass)
+forecast::Acf(target_ts_3m, main = "ACF for Log Returns (3m)", na.action = na.pass)
+forecast::Acf(target_ts_6m, main = "ACF for Log Returns (6m)", na.action = na.pass)
+forecast::Acf(target_ts_12m, main = "ACF for Log Returns (12m)", na.action = na.pass)
+
+par(mfrow = c(1, 1))
+```
+#  Cross-Correlation (CCF) Analysis
+```{r}
+analyze_leading_ccf <- function(data, target_var) {
+  predictor_names <- data %>%
+    select(-date, -all_of(target_var)) %>%
+    select(ends_with("_l0")) %>%
+    names()
+  target_vector <- data[[target_var]]
+  ccf_list <- list()
+
+  for (predictor in predictor_names) {
+    predictor_vector <- data[[predictor]]
+    ccf_object <- forecast::Ccf(
+      x = predictor_vector,
+      y = target_vector,
+      na.action = na.pass,
+      plot = FALSE)
+      
+    correlations <- as.vector(ccf_object$acf)
+    lags <- as.vector(ccf_object$lag)
+    leading_lags_idx <- lags < 0 # Find indices of leading lags
+      
+    leading_correlations <- correlations[leading_lags_idx]
+    leading_lags <- lags[leading_lags_idx]
+    max_abs_cor_index <- which.max(abs(leading_correlations))
+    max_correlation <- leading_correlations[max_abs_cor_index]
+    lag_at_max <- leading_lags[max_abs_cor_index]
+        
+    ccf_list[[predictor]] <- tibble(
+    Predictor = predictor,
+    LeadingCorrelation = max_correlation,
+    BestLeadingLag = lag_at_max)}
+  
+  ccf_results <- bind_rows(ccf_list) %>%
+    arrange(desc(abs(LeadingCorrelation)))
+  
+  return(ccf_results)
+}
+
+# 1m
+ccf_1m <- analyze_leading_ccf(df_1m, "y_lr_1m")
+print(ccf_1m, n = 20)
+
+# 3m
+ccf_3m <- analyze_leading_ccf(df_3m, "y_lr_3m")
+print(ccf_3m, n = 20)
+
+# 6m
+ccf_6m <- analyze_leading_ccf(df_6m, "y_lr_6m")
+print(ccf_6m, n = 20)
+
+# 12m
+ccf_12m <- analyze_leading_ccf(df_12m, "y_lr_12m")
+print(ccf_12m, n = 20)
+```
+
+# Multicollinearity
+```{r}
+df_1m_l0 <- df_1m %>%
+  select_if(is.numeric) %>%
+  select(-y_lr_1m) %>%
+  select(ends_with('_l0'))
+
+highly_correlated_pairs_1m <- corrr::correlate(df_1m_l0) %>%
+  shave() %>%
+  corrr::stretch(na.rm = TRUE) %>%
+  filter(abs(r) > 0.9) %>%
+  arrange(desc(abs(r)))
+
+df_3m_l0 <- df_3m %>%
+  select_if(is.numeric) %>%
+  select(-y_lr_3m) %>%
+  select(ends_with('_l0'))
+
+highly_correlated_pairs_3m <- corrr::correlate(df_3m_l0) %>%
+  shave() %>%
+  corrr::stretch(na.rm = TRUE) %>%
+  filter(abs(r) > 0.9) %>%
+  arrange(desc(abs(r)))
+
+df_6m_l0 <- df_6m %>%
+  select_if(is.numeric) %>%
+  select(-y_lr_6m) %>%
+  select(ends_with('_l0'))
+
+highly_correlated_pairs_6m <- corrr::correlate(df_6m_l0) %>%
+  shave() %>%
+  corrr::stretch(na.rm = TRUE) %>%
+  filter(abs(r) > 0.9) %>%
+  arrange(desc(abs(r)))
+
+df_12m_l0 <- df_12m %>%
+  select_if(is.numeric) %>%
+  select(-y_lr_12m) %>%
+  select(ends_with('_l0'))
+
+highly_correlated_pairs_12m <- corrr::correlate(df_12m_l0) %>%
+  shave() %>%
+  corrr::stretch(na.rm = TRUE) %>%
+  filter(abs(r) > 0.9) %>%
+  arrange(desc(abs(r)))
+
+par(mfrow = c(2, 2), mar = c(1, 1, 2, 4))
+cor_matrix_1m <- cor(df_1m_l0, use = "complete.obs")
+cor_matrix_3m <- cor(df_3m_l0, use = "complete.obs")
+cor_matrix_6m <- cor(df_6m_l0, use = "complete.obs")
+cor_matrix_12m <- cor(df_12m_l0, use = "complete.obs")
+
+corrplot(cor_matrix_1m,
+         method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.cex = 0.5, diag = FALSE,
+         tl.pos = 'n',
+         mar = c(0, 0, 1, 0))
+mtext("Correlation Heatmap (1m)", side = 4, line = 2, cex = 1)
+
+corrplot(cor_matrix_3m,
+         method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.cex = 0.5, diag = FALSE,
+         tl.pos = 'n',
+         mar = c(0, 0, 1, 0))
+mtext("Correlation Heatmap (3m)", side = 4, line = 2, cex = 1)
+
+corrplot(cor_matrix_6m,
+         method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.cex = 0.5, diag = FALSE,
+         tl.pos = 'n',
+         mar = c(0, 0, 1, 0))
+mtext("Correlation Heatmap (6m)", side = 4, line = 2, cex = 1)
+
+corrplot(cor_matrix_12m,
+         method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.cex = 0.5, diag = FALSE,
+         tl.pos = 'n',
+         mar = c(0, 0, 1, 0))
+mtext("Correlation Heatmap (12m)", side = 4, line = 2, cex = 1)
+
+par(mfrow = c(1, 1), mar = c(5, 4, 4, 2) + 0.1)
+```
+
+
+
