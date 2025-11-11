@@ -134,30 +134,30 @@ dm_pairwise_index <- function(models,
 
 ```{r}
 #Models
-ar1_1m <- read.csv("1 Month/Results/ar1_level_results_1m.csv")
-lasso_nosis_min_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_min_NOSIS.csv")
-lasso_nosis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_1se_NOSIS.csv")
-lasso_sis_min_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_min_SIS.csv")
-lasso_sis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_LASSO_1se_SIS.csv")
-ridge_nosis_min_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_min_NOSIS.csv")
-ridge_nosis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_1se_NOSIS.csv")
-ridge_sis_min_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_min_SIS.csv")
-ridge_sis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_RIDGE_1se_SIS.csv")
-enet_nosis_min_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_min_NOSIS.csv")
-enet_nosis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_1se_NOSIS.csv")
-enet_sis_min_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_min_SIS.csv")
-enet_sis_1se_1m <- read.csv("1 Month/Results/y_lr_1m_ELASTIC_1se_SIS.csv")
-svr_1m <- read.csv("1 Month/Results/predictions_svr_h1.csv")
-pcr_1m <- read.csv("1 Month/Results/pcr_level_pred_1m.csv")
-pcalasso_1m <- read.csv("1 Month/Results/pcalasso_level_pred_1m.csv")
-pls_1m <- read.csv("1 Month/Results/pls_level_pred_1m.csv")
-tree_1m <- read.csv("1 Month/Results/tree_level_results_1m.csv")
-rpart_1m <- read.csv("1 Month/Results/rpart_level_results_1m.csv")
-bagging_1m <- read.csv("1 Month/Results/bag_level_results_1m.csv")
-rf_default_1m <- read.csv("1 Month/Results/ranger_level_results_1m.csv")
-rf_tuned_1m <- read.csv("1 Month/Results/rangertune_level_results_1m.csv")
-xgb_default_1m <- read.csv("1 Month/Results/xgb_level_results_1m.csv")
-xgb_tuned_1m <- read.csv("1 Month/Results/xgbtune_level_results_1m.csv")
+ar1_1m <- read.csv("../1 Month/Results/ar1_level_results_1m.csv")
+lasso_nosis_min_1m <- read.csv("../1 Month/Results/y_lr_1m_LASSO_min_NOSIS.csv")
+lasso_nosis_1se_1m <- read.csv("../1 Month/Results/y_lr_1m_LASSO_1se_NOSIS.csv")
+lasso_sis_min_1m <- read.csv("../1 Month/Results/y_lr_1m_LASSO_min_SIS.csv")
+lasso_sis_1se_1m <- read.csv("../1 Month/Results/y_lr_1m_LASSO_1se_SIS.csv")
+ridge_nosis_min_1m <- read.csv("../1 Month/Results/y_lr_1m_RIDGE_min_NOSIS.csv")
+ridge_nosis_1se_1m <- read.csv("../1 Month/Results/y_lr_1m_RIDGE_1se_NOSIS.csv")
+ridge_sis_min_1m <- read.csv("../1 Month/Results/y_lr_1m_RIDGE_min_SIS.csv")
+ridge_sis_1se_1m <- read.csv("../1 Month/Results/y_lr_1m_RIDGE_1se_SIS.csv")
+enet_nosis_min_1m <- read.csv("../1 Month/Results/y_lr_1m_ELASTIC_min_NOSIS.csv")
+enet_nosis_1se_1m <- read.csv("../1 Month/Results/y_lr_1m_ELASTIC_1se_NOSIS.csv")
+enet_sis_min_1m <- read.csv("../1 Month/Results/y_lr_1m_ELASTIC_min_SIS.csv")
+enet_sis_1se_1m <- read.csv("../1 Month/Results/y_lr_1m_ELASTIC_1se_SIS.csv")
+svr_1m <- read.csv("../1 Month/Results/predictions_svr_h1.csv")
+pcr_1m <- read.csv("../1 Month/Results/pcr_level_pred_1m.csv")
+pcalasso_1m <- read.csv("../1 Month/Results/pcalasso_level_pred_1m.csv")
+pls_1m <- read.csv("../1 Month/Results/pls_level_pred_1m.csv")
+tree_1m <- read.csv("../1 Month/Results/tree_level_results_1m.csv")
+rpart_1m <- read.csv("../1 Month/Results/rpart_level_results_1m.csv")
+bagging_1m <- read.csv("../1 Month/Results/bag_level_results_1m.csv")
+rf_default_1m <- read.csv("../1 Month/Results/ranger_level_results_1m.csv")
+rf_tuned_1m <- read.csv("../1 Month/Results/rangertune_level_results_1m.csv")
+xgb_default_1m <- read.csv("../1 Month/Results/xgb_level_results_1m.csv")
+xgb_tuned_1m <- read.csv("../1 Month/Results/xgbtune_level_results_1m.csv")
 
 
 
@@ -247,7 +247,7 @@ models_all <- list(
 # Run pipeline (example: 1-month horizon, squared error, 5% alpha)
 out <- dm_pairwise_index (models_all,
                           price_transform$svr_1m,                  # a data frame holding the actuals
-                          h = 1, power = 2, alpha = 0.05)
+                          h = 1, power = 2, alpha = 0.05)          # Change h to match horizon
 
 # Inspect the logical “who beats whom” matrix:
 out$win_sig
@@ -257,7 +257,7 @@ out$win_sig
 mean_loss <- out$mean_loss
 best   <- names(sort(mean_loss))[1]
 second <- names(sort(mean_loss))[2]
-bench  <- "AR(1)"  # or "RW"
+bench  <- "AR(1)" 
 
 t_best_vs_bench <- out$dm_stats[bench, best]
 p_best_vs_bench <- out$pvals[bench,  best]
@@ -282,7 +282,7 @@ as.data.frame(printable)
 ```
 
 ```{r}
-write.csv(as.data.frame(printable), "1 Month/Results/1_Month_DM_test_stats.csv")
+#write.csv(as.data.frame(printable), "1 Month/Results/1_Month_DM_test_stats.csv")
 #write.csv(out$win_sig, "12 Month/Results/12_Month_DM_test.csv")
 ```
 
