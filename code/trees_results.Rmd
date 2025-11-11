@@ -1,0 +1,537 @@
+This Rmd will combine all the results for the Tree methods across the 1,3,6,12 month horizons. 
+
+```{r packages}
+rm(list=ls())
+source("results_function.R") # recursive CV, loss, directional accuracy functions 
+
+# load our forecast results
+load("1_month_trees_updated.RData")
+load("3_month_trees_updated.RData")
+load("6_month_trees_updated.RData")
+load("12_month_trees_updated.RData")
+```
+
+```{r}
+library(readr)
+library(tree) 
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(ranger)
+library(xgboost)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+
+set.seed(1111)
+```
+
+## combine results 
+```{r}
+all_mse_results <- mse_test_results_1m %>% inner_join(mse_test_results_3m, by = "model") %>% 
+  inner_join(mse_test_results_6m, by = "model") %>% inner_join(mse_test_results_12m, by = "model")
+all_mse_results
+```
+
+## get directional accuracy results 
+```{r}
+metrics <- c("accuracy", "precision", "recall", "F1")
+
+get_dir <- function(metrics, result_list){
+  models <- c("AR(1)", "Tree", "rpart", "Bagging Default", "RF Default", "RF", "XGB Default", "XGB")
+  results_matrix <- matrix(ncol = length(metrics), nrow = length(models))
+  colnames(results_matrix) <- metrics
+  rownames(results_matrix) <- models
+  
+  for (j in 1:length(metrics)){
+    me <- metrics[j]
+    for (i in 1:length(result_list)) {
+      result_df <- as.data.frame(result_list[[i]])
+      m <- directional_accuracy(as.numeric(result_df$predicted),as.numeric(result_df$actual))[[me]]
+      results_matrix[i, j] <- m
+    }
+  }
+  return (as.data.frame(results_matrix))
+}
+
+```
+
+```{r}
+all_1m_results <- list(ar1_level_results_1m, tree_level_results_1m, rpart_level_results_1m, bag_level_results_1m, 
+                       ranger_level_results_1m, rangertune_level_results_1m, xgb_level_results_1m,
+                       xgbtune_level_results_1m)
+all_1m_da <- get_dir(metrics, all_1m_results)
+all_1m_da
+```
+
+```{r}
+all_3m_results <- list(ar1_level_results_3m, tree_level_results_3m, rpart_level_results_3m, bag_level_results_3m, 
+                       ranger_level_results_3m, rangertune_level_results_3m, xgb_level_results_3m,
+                       xgbtune_level_results_3m)
+all_3m_da <- get_dir(metrics, all_3m_results)
+all_3m_da
+```
+
+```{r}
+all_6m_results <- list(ar1_level_results_6m, tree_level_results_6m, rpart_level_results_6m, bag_level_results_6m, 
+                       ranger_level_results_6m, rangertune_level_results_6m, xgb_level_results_6m,
+                       xgbtune_level_results_6m)
+all_6m_da <- get_dir(metrics, all_6m_results)
+all_6m_da
+```
+```{r}
+all_12m_results <- list(ar1_level_results_12m, tree_level_results_12m, rpart_level_results_12m, bag_level_results_12m, 
+                       ranger_level_results_12m, rangertune_level_results_12m, xgb_level_results_12m,
+                       xgbtune_level_results_12m)
+all_12m_da <- get_dir(metrics, all_12m_results)
+all_12m_da
+```
+
+```{r}
+cat("RF results contain:", names(ranger_rolling_results_1m), "\n")
+cat("XGB results contain:", names(xgb_rolling_results_1m), "\n")
+
+```
+
+## VAR results 
+```{r}
+get_var <- function(result_list){
+  models <- c("AR(1)", "Tree", "rpart", "Bagging Default", "RF Default", "RF", "XGB Default", "XGB")
+  results_matrix <- matrix(ncol = 1, nrow = length(models))
+  rownames(results_matrix) <- models
+  
+  for (i in 1:length(result_list)) {
+    result_df <- as.data.frame(result_list[[i]])
+    results_matrix[i] <- VAR(result_df)$VaR_95
+  }
+  return (as.data.frame(results_matrix))
+}
+```
+
+
+```{r}
+all_1m_rolling <- list(ar1_rolling_results_1m, tree_rolling_results_1m, rpart_rolling_results_1m,
+                       bag_rolling_results_1m, ranger_rolling_results_1m, rangertune_rolling_results_1m, 
+                       xgb_rolling_results_1m, xgbtune_rolling_results_1m)
+all_1m_var <- get_var(all_1m_rolling)
+all_1m_var
+```
+
+```{r}
+all_3m_rolling <- list(ar1_rolling_results_3m, tree_rolling_results_3m, rpart_rolling_results_3m,
+                       bag_rolling_results_3m, ranger_rolling_results_3m, rangertune_rolling_results_3m, 
+                       xgb_rolling_results_3m, xgbtune_rolling_results_3m)
+all_3m_var <- get_var(all_3m_rolling)
+all_3m_var
+```
+
+```{r}
+all_6m_rolling <- list(ar1_rolling_results_6m, tree_rolling_results_6m, rpart_rolling_results_6m,
+                       bag_rolling_results_6m, ranger_rolling_results_6m, rangertune_rolling_results_6m, 
+                       xgb_rolling_results_6m, xgbtune_rolling_results_6m)
+all_6m_var <- get_var(all_6m_rolling)
+all_6m_var
+```
+
+```{r}
+all_12m_rolling <- list(ar1_rolling_results_12m, tree_rolling_results_12m, rpart_rolling_results_12m,
+                       bag_rolling_results_12m, ranger_rolling_results_12m, rangertune_rolling_results_12m, 
+                       xgb_rolling_results_12m, xgbtune_rolling_results_12m)
+all_12m_var <- get_var(all_12m_rolling)
+all_12m_var
+```
+
+## feature importances 
+We will examine the feature importances for Boosting, Random Forests and XGBoost models for the last tree only 
+
+### 1 month 
+```{r}
+# Get last window data
+all_1m_data = rbind(train_1m, test_1m)
+n_train <- nrow(train_1m)
+last_train_x <- all_1m_data[nrow(all_1m_data)-n_train:(nrow(all_1m_data)-1), ]
+last_train_y <- all_1m_data[nrow(all_1m_data), ]$y_lr_1m
+```
+
+```{r}
+# Get bagging default importance
+final_bag_1m_model <- ranger(y_lr_1m~., data = last_train_x, num.tree = 500, mtry =945, importance = "permutation")
+importance_bag_1m = as.data.frame(final_bag_1m_model$variable.importance)
+colnames(importance_bag_1m) <- c("importance")
+
+importance_bag_1m = importance_bag_1m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_bag_1m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of Bagging Trees 1m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF default importance
+final_rf_1m_model <- ranger(y_lr_1m~., data = last_train_x, num.tree = 500, importance = "permutation")
+importance_rf_1m = as.data.frame(final_rf_1m_model$variable.importance)
+colnames(importance_rf_1m) <- c("importance")
+
+importance_rf_1m = importance_rf_1m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rf_1m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Default) 1m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF importance
+final_rftune_1m_model <- ranger(y_lr_1m~., data = last_train_x, num.tree = 1000, mtry = 30, importance = "permutation")
+importance_rftune_1m = as.data.frame(final_rftune_1m_model$variable.importance)
+colnames(importance_rftune_1m) <- c("importance")
+
+importance_rftune_1m = importance_rftune_1m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rftune_1m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Tuned) 1m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+```{r}
+# Get XGB default importance  
+importance_xgb_1m <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_1m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_1m)), label = last_train_x$y_lr_1m, 
+                  booster = "gbtree", nrounds = 500, 
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+) %>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgb_1m, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Default) 1m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+# Get XGB importance  
+importance_xgbtune_1m_model <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_1m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_1m)), label = last_train_x$y_lr_1m, 
+                  booster = "gbtree", nrounds = 500, max_depth = 7, subsample = 0.5,
+                  colsample_bytree = 0.9, eta = 0.1, 
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+)%>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgbtune_1m_model, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Tuned) 1m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+top20_importance_1m <- importance_bag_1m %>% full_join(importance_rf_1m, by = 'rowname') %>%
+  full_join(importance_rftune_1m, by = 'rowname') %>% full_join(importance_xgb_1m, by = c("rowname"= "Feature")) %>%
+  full_join(importance_xgbtune_1m_model, by = c("rowname"="Feature")) 
+```
+
+
+### 3 month 
+```{r}
+# Get last window data
+all_3m_data = rbind(train_3m, test_3m)
+n_train <- nrow(train_3m)
+last_train_x <- all_3m_data[nrow(all_3m_data)-n_train:(nrow(all_3m_data)-1), ]
+last_train_y <- all_3m_data[nrow(all_3m_data), ]$y_lr_1m
+```
+
+```{r}
+# Get bagging default importance
+final_bag_3m_model <- ranger(y_lr_3m~., data = last_train_x, num.tree = 500, mtry =945, importance = "permutation")
+importance_bag_3m = as.data.frame(final_bag_3m_model$variable.importance)
+colnames(importance_bag_3m) <- c("importance")
+
+importance_bag_3m = importance_bag_3m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_bag_3m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of Bagging Trees 3m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF default importance
+final_rf_3m_model <- ranger(y_lr_3m~., data = last_train_x, num.tree = 500, importance = "permutation")
+importance_rf_3m = as.data.frame(final_rf_3m_model$variable.importance)
+colnames(importance_rf_3m) <- c("importance")
+
+importance_rf_3m = importance_rf_3m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rf_3m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Default) 3m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF importance
+final_rftune_3m_model <- ranger(y_lr_3m~., data = last_train_x, num.tree = 1000, mtry = 90, importance = "permutation")
+importance_rftune_3m = as.data.frame(final_rftune_3m_model$variable.importance)
+colnames(importance_rftune_3m) <- c("importance")
+
+importance_rftune_3m = importance_rftune_3m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rftune_3m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Tuned) 3m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+```{r}
+# Get XGB default importance  
+importance_xgb_3m <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_3m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_3m)), label = last_train_x$y_lr_3m, 
+                  booster = "gbtree", nrounds = 500, 
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+) %>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgb_3m, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Default) 3m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+# Get XGB importance  
+importance_xgbtune_3m_model <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_3m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_3m)), label = last_train_x$y_lr_3m, 
+                  booster = "gbtree", nrounds = 500, max_depth = 5, subsample = 0.5,
+                  colsample_bytree = 0.7, eta = 0.3, 
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+)%>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgbtune_3m_model, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Tuned) 3m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+top20_importance_3m <- importance_bag_3m %>% full_join(importance_rf_3m, by = 'rowname') %>%
+  full_join(importance_rftune_3m, by = 'rowname') %>% full_join(importance_xgb_3m, by = c("rowname"= "Feature")) %>%
+  full_join(importance_xgbtune_3m_model, by = c("rowname"="Feature")) 
+```
+
+### 6 month 
+```{r}
+# Get last window data
+all_6m_data = rbind(train_6m, test_6m)
+n_train <- nrow(train_6m)
+last_train_x <- all_6m_data[nrow(all_6m_data)-n_train:(nrow(all_6m_data)-1), ]
+last_train_y <- all_6m_data[nrow(all_6m_data), ]$y_lr_6m
+```
+
+```{r}
+# Get bagging default importance
+final_bag_6m_model <- ranger(y_lr_6m~., data = last_train_x, num.tree = 500, mtry =945, importance = "permutation")
+importance_bag_6m = as.data.frame(final_bag_6m_model$variable.importance)
+colnames(importance_bag_6m) <- c("importance")
+
+importance_bag_6m = importance_bag_6m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_bag_6m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of Bagging Trees 6m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF default importance
+final_rf_6m_model <- ranger(y_lr_6m~., data = last_train_x, num.tree = 500, importance = "permutation")
+importance_rf_6m = as.data.frame(final_rf_6m_model$variable.importance)
+colnames(importance_rf_6m) <- c("importance")
+
+importance_rf_6m = importance_rf_6m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rf_6m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Default) 6m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF importance
+final_rftune_6m_model <- ranger(y_lr_6m~., data = last_train_x, num.tree = 500, mtry = 315, importance = "permutation")
+importance_rftune_6m = as.data.frame(final_rftune_6m_model$variable.importance)
+colnames(importance_rftune_6m) <- c("importance")
+
+importance_rftune_6m = importance_rftune_6m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rftune_6m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Tuned) 6m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+```{r}
+# Get XGB default importance  
+importance_xgb_6m <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_6m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_6m)), label = last_train_x$y_lr_6m, 
+                  booster = "gbtree", nrounds = 500, 
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+) %>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgb_6m, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Default) 6m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+# Get XGB importance  
+importance_xgbtune_6m_model <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_6m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_6m)), label = last_train_x$y_lr_6m, 
+                  booster = "gbtree", nrounds = 500, max_depth = 7, subsample = 0.8,
+                  colsample_bytree = 0.5, eta = 0.1,
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+)%>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgbtune_6m_model, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Tuned) 6m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+top20_importance_6m <- importance_bag_6m %>% full_join(importance_rf_6m, by = 'rowname') %>%
+  full_join(importance_rftune_6m, by = 'rowname') %>% full_join(importance_xgb_6m, by = c("rowname"= "Feature")) %>%
+  full_join(importance_xgbtune_6m_model, by = c("rowname"="Feature")) 
+```
+
+### 12 month 
+```{r}
+# Get last window data
+all_12m_data = rbind(train_12m, test_12m)
+n_train <- nrow(train_12m)
+last_train_x <- all_12m_data[nrow(all_12m_data)-n_train:(nrow(all_12m_data)-1), ]
+last_train_y <- all_12m_data[nrow(all_12m_data), ]$y_lr_12m
+```
+
+```{r}
+# Get bagging default importance
+final_bag_12m_model <- ranger(y_lr_12m~., data = last_train_x, num.tree = 500, mtry =945, importance = "permutation")
+importance_bag_12m = as.data.frame(final_bag_12m_model$variable.importance)
+colnames(importance_bag_12m) <- c("importance")
+
+importance_bag_12m = importance_bag_12m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_bag_12m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of Bagging Trees 12m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF default importance
+final_rf_12m_model <- ranger(y_lr_12m~., data = last_train_x, num.tree = 500, importance = "permutation")
+importance_rf_12m = as.data.frame(final_rf_12m_model$variable.importance)
+colnames(importance_rf_12m) <- c("importance")
+
+importance_rf_12m = importance_rf_12m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rf_12m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Default) 12m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+
+```{r}
+# Get RF importance
+final_rftune_12m_model <- ranger(y_lr_12m~., data = last_train_x, num.tree = 500, mtry = 315, importance = "permutation")
+importance_rftune_12m = as.data.frame(final_rftune_12m_model$variable.importance)
+colnames(importance_rftune_12m) <- c("importance")
+
+importance_rftune_12m = importance_rftune_12m %>% arrange(desc(importance)) %>% head(20) %>% rownames_to_column()
+
+ggplot(importance_rftune_12m, aes(x = importance, y=fct_rev(as_factor(rowname)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of RF (Tuned) 12m", y = "features", subtitle = "Method: Permutation") + 
+  theme_minimal()
+
+```
+```{r}
+# Get XGB default importance  
+importance_xgb_12m <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_12m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_12m)), label = last_train_x$y_lr_12m, 
+                  booster = "gbtree", nrounds = 500, 
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+) %>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgb_12m, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Default) 12m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+```{r}
+# Get XGB importance  
+importance_xgbtune_12m_model <- xgb.importance(
+  feature_names = colnames(last_train_x%>% select(-y_lr_12m)),
+  model = xgboost(data = as.matrix(last_train_x %>% select(-y_lr_12m)), label = last_train_x$y_lr_12m, 
+                  booster = "gbtree", nrounds = 500, max_depth = 7, subsample = 0.8,
+                  colsample_bytree = 0.7, eta = 0.3,
+                  objective = "reg:squarederror", verbose = 0, 
+                  nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+)%>% arrange(desc(Gain)) %>% head(20) 
+
+ggplot(importance_xgbtune_12m_model, aes(x = Gain, y=fct_rev(as_factor(Feature)))) +
+  geom_point() +
+  labs(title = "Top 20 Feature Importance of XGBoost (Tuned) 12m", y = "features", subtitle = "Method: Gain") +
+  theme_minimal()
+```
+
+```{r}
+top20_importance_12m <- importance_bag_12m %>% full_join(importance_rf_12m, by = 'rowname') %>%
+  full_join(importance_rftune_12m, by = 'rowname') %>% full_join(importance_xgb_12m, by = c("rowname"= "Feature")) %>%
+  full_join(importance_xgbtune_12m_model, by = c("rowname"="Feature")) 
+```
+
+
+## visualisation graphs 
+```{r}
+forecast_12m <- as.data.frame(cbind(cbind(cbind(y_test_12m = ar1_level_results_12m$actual_level, 
+                            ar1_test_pred_12m = ar1_level_results_12m$pred_level), 
+                      pred12m_rf = rangertune_level_results_12m$pred_level), 
+                      date = as.Date(ar1_level_results_12m$date)))
+ggplot(data= forecast_12m, aes(x =as.Date(forecast_12m$date))) +
+  geom_line(aes(y=y_test_12m, color = 'actual')) +
+  geom_line(aes(y=pred12m_rf, color = 'RF'))+
+  geom_line(aes(y=ar1_test_pred_12m, color = "AR(1)"))+
+  labs(title = "Oil prices (12 month forecast)",
+       x = "Date")+
+  theme_minimal()
+```
+
+```{r}
+forecast_1m <- as.data.frame(cbind(cbind(cbind(y_test_1m = ar1_level_results_1m$actual_level, 
+                            ar1_test_pred_1m = ar1_level_results_1m$pred_level), 
+                      pred1m_rf = ranger_level_results_1m$pred_level), 
+                      date = as.Date(ar1_level_results_1m$date)))
+ggplot(data= forecast_1m, aes(x =as.Date(forecast_1m$date))) +
+  geom_line(aes(y=y_test_1m, color = 'actual')) +
+  geom_line(aes(y=pred1m_rf, color = 'RF'))+
+  geom_line(aes(y=ar1_test_pred_1m, color = "AR(1)"))+
+  labs(title = "Oil prices (12 month forecast)",
+       x = "Date")+
+  theme_minimal()
+```

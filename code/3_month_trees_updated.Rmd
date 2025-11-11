@@ -1,0 +1,325 @@
+This is a Rmd for 3 month forecast for the tree methods. There are a total of 4 tree methods as listed below:
+1) Single Decision Tree (tree and rpart packages)
+2) Bagging Trees
+3) Random Forests 
+4) XGBoost 
+
+For 3 and 4, for each method, we will form 2 models:
+- model with tuned hyperparameters using recursive CV 
+- off-the-shelf untuned model without consideration of time series data 
+
+We will also create a benchmark of the AR(1) model for comparison. 
+There will be a total of 8 models. 
+
+```{r packages}
+rm(list=ls())
+source("results_function.R") # recursive CV, loss, directional accuracy functions 
+```
+```{r}
+library(readr)
+library(tree) 
+library(rpart)
+library(rpart.plot)
+library(adabag)
+library(randomForest)
+library(ranger)
+library(xgboost)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+
+set.seed(1111)
+```
+
+```{r data}
+train_3m <- read_csv("../3 Month/train_3m.csv") %>% as.data.frame() %>% # load data as df
+  {rownames(.) <- .$date; .} %>% select(-date) # make date the rowname and remove the column 
+test_3m <- read_csv("../3 Month/test_3m.csv") %>% as.data.frame() %>% 
+  {rownames(.) <- .$date; .} %>% select(-date)
+
+oilprices <- read_csv("../data/only_brent.csv") 
+testdates <- read_csv("../3 Month/test_3m.csv") %>% as.data.frame() %>% select(date)
+```
+
+# Models 
+## Model 1: AR(1) benchmark 
+```{r}
+fit_ar1_3m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  lm(y~r_1m_l0,data=training_set)
+}
+
+predict_ar1_3m <- function(model,test_x){
+  predict(model, newdata = test_x)
+}
+
+ar1_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_ar1_3m, predict_ar1_3m, "y_lr_3m")
+ar1_level_results_3m <- level_price_results(ar1_rolling_results_3m, oilprices, testdates)
+mse_3m_ar1 <- MSE(ar1_level_results_3m$pred_level, ar1_level_results_3m$actual_level)
+mse_3m_ar1
+```
+
+## Model 2: Decision Tree Untuned (tree)
+```{r}
+fit_tree_3m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  mindev <- ifelse(is.null(params$mindev), 0.0001, params$mindev)
+  temp <- tree(y~.,data=training_set, mindev=mindev) # grow the tree
+  prune.tree(temp,best=7) #prune back to 7 leaves
+}
+
+predict_tree_3m <- function(model,test_x){
+  predict(model, newdata = test_x, type = "vector")
+}
+
+tree_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_tree_3m, predict_tree_3m, "y_lr_3m")
+tree_level_results_3m <- level_price_results(tree_rolling_results_3m, oilprices, testdates)
+mse_3m_tree <- MSE(tree_level_results_3m$pred_level, tree_level_results_3m$actual_level)
+mse_3m_tree
+```
+
+## Model 3: Decision Tree Untuned(rpart)
+```{r}
+fit_rpart_3m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  fit <- rpart(y~.,data=training_set,method = "anova") 
+  optimal_cp <- fit$cptable[which.min(fit$cptable[,"xerror"]), "CP"]
+  prune(fit, cp = optimal_cp)
+}
+
+predict_rpart_3m <- function(model,test_x){
+  predict(model, newdata = test_x, type = "vector")
+}
+
+rpart_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_rpart_3m, predict_rpart_3m, "y_lr_3m")
+rpart_level_results_3m <- level_price_results(rpart_rolling_results_3m, oilprices, testdates)
+mse_3m_rpart <- MSE(rpart_level_results_3m$pred_level, rpart_level_results_3m$actual_level)
+mse_3m_rpart
+```
+
+
+## Model 4: Bagging Trees Untuned
+```{r}
+#fit bagging trees on default settings, ignore ts data
+fit_bag_3m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 500, mtry =945, importance = "permutation")
+}
+
+predict_bag_3m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+bag_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_bag_3m, predict_bag_3m, "y_lr_3m")
+bag_level_results_3m <- level_price_results(bag_rolling_results_3m, oilprices, testdates)
+mse_3m_bag <- MSE(bag_level_results_3m$pred_level, bag_level_results_3m$actual_level)
+mse_3m_bag
+```
+
+
+## Model 5: Random Forest Untuned 
+```{r}
+#fit the random forest on default settings, ignore ts data
+fit_ranger_3m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 500, importance = "permutation")
+}
+
+predict_ranger_3m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+ranger_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_ranger_3m, predict_ranger_3m, "y_lr_3m")
+ranger_level_results_3m <- level_price_results(ranger_rolling_results_3m, oilprices, testdates)
+mse_3m_ranger <- MSE(ranger_level_results_3m$pred_level, ranger_level_results_3m$actual_level)
+mse_3m_ranger
+```
+
+## Model 6:Random Forest Tuned
+```{r}
+# P = 945, for regression mtry = P/3 = 315
+fit_rfgrid <- function(train_x, train_y, params) {
+  num.trees <- ifelse(is.null(params$num.trees), 500, params$num.trees)
+  mtry <- ifelse(is.null(params$mtry), 315, params$mtry)
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.trees = num.trees, mtry = mtry,importance = "permutation")
+}
+
+predict_rfgrid <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+rf_component_grid <- list(
+  num.trees = c(500, 1000), # number of trees
+  mtry = c(30, 90, 150, 210, 315, 945) # no of variables sampled in each split, 945 for bagging 
+)
+
+rf_grid_3m <- ts_cv_hyperparameter_tuning(
+  train_data = train_3m,
+  fit_fn = fit_rfgrid,
+  predict_fn = predict_rfgrid,
+  param_grid = rf_component_grid,
+  n_folds = 5,                  
+  cumulative = TRUE,
+  model_name = "Random Forest 3m"
+)
+```
+
+```{r}
+# to select best hyperparameters for Random Forest
+rf_grid_3m %>% arrange(mean_cv_mse) %>% head(5) 
+# selected params: num.trees = 1000, mtry = 30
+# noise error = 0.0087
+```
+
+```{r}
+fit_rangertune_3m <- function(train_x, train_y, params) {
+  training_set <- as.data.frame(train_x)
+  training_set$y = train_y
+  ranger(y~., data = training_set, num.tree = 1000, mtry = 90, importance = "permutation")
+}
+
+predict_ranger_3m <- function(model,test_x){
+  predict(model, data = test_x)$predictions
+}
+
+rangertune_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_rangertune_3m, predict_ranger_3m, "y_lr_3m")
+rangertune_level_results_3m <- level_price_results(rangertune_rolling_results_3m, oilprices, testdates)
+mse_3m_rangertune <- MSE(rangertune_level_results_3m$pred_level, rangertune_level_results_3m$actual_level)
+mse_3m_rangertune
+```
+
+
+```{r}
+# to select best hyperparameters for Bagging Trees
+rf_grid_3m %>% filter(mtry == 945) %>% arrange(mean_cv_mse)
+# selected params: num.tree = 1000, mtry = 945
+# noise error = 0.0087
+```
+```{r}
+mse_3m_bagtune <- mse_3m_bag
+```
+
+
+## Model 8: XGBoost Untuned
+
+```{r}
+#fit the XGBoost model on default settings, ignore ts data
+
+fit_xgb_3m <- function(train_x, train_y, params) {
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", nrounds = 500, objective = "reg:squarederror", 
+    verbose = 0, nthread = parallel::detectCores() - 1, early_stopping_rounds = 10)
+}
+
+predict_xgb_3m <- function(model, test_x) {
+  test_matrix <- as.matrix(test_x)
+  predict(model, newdata = test_matrix)
+}
+
+xgb_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_xgb_3m, predict_xgb_3m, "y_lr_3m")
+xgb_level_results_3m <- level_price_results(xgb_rolling_results_3m, oilprices, testdates)
+mse_3m_xgb <- MSE(xgb_level_results_3m$pred_level, xgb_level_results_3m$actual_level)
+mse_3m_xgb
+```
+
+## Model 9: XGBoost Tuned 
+```{r}
+# P = 945, for regression mtry = P/3 = 315
+fit_xg <- function(train_x, train_y, params) {
+  eta = ifelse(is.null(params$eta), 0.1, params$eta)
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", nrounds = 100, eta = eta, 
+          objective = "reg:squarederror", verbose = 0, nthread = parallel::detectCores(), 
+          early_stopping_rounds = 10, max_depth = 5, tree_method = "hist")
+}
+
+predict_xg <- function(model,val_x){
+  val_matrix <- as.matrix(val_x)
+  predict(model, newdata = val_matrix)
+}
+
+xg_component_grid <- list(
+  eta = c(0.001, 0.025, 0.05, 0.1, 0.3)
+)
+
+xg_3m <- ts_cv_hyperparameter_tuning(
+  train_data = train_3m,
+  fit_fn = fit_xg,
+  predict_fn = predict_xg,
+  param_grid = xg_component_grid,
+  n_folds = 5,                  
+  cumulative = TRUE,
+  model_name = "XGBoost 3m"
+)
+```
+
+```{r}
+fit_xg_tune <- function(train_x, train_y, params) {
+  subsample = ifelse(is.null(params$subsample), 0.5, params$subsample)
+  colsample_bytree = ifelse(is.null(params$colsample_bytree), 0.5, params$colsample_bytree)
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", objective = "reg:squarederror", eta = 0.3, 
+          nrounds = 500, subsample=subsample, colsample_bytree=colsample_bytree, 
+          verbose = 0,nthread = parallel::detectCores(), 
+          early_stopping_rounds = 10, max_depth = 5, tree_method = "hist")
+}
+
+xg_component_grid_tune <- list(
+  subsample = c(0.5, 0.8),
+  colsample_bytree = c(0.5, 0.7)
+)
+
+xg_3m_tuned <- ts_cv_hyperparameter_tuning(
+  train_data = train_3m,
+  fit_fn = fit_xg_tune,
+  predict_fn = predict_xg,
+  param_grid = xg_component_grid_tune,
+  n_folds = 5,                  
+  cumulative = TRUE,
+  model_name = "XGBoost 3m tuned"
+)
+```
+
+```{r}
+# to select best hyperparameters for XGBoost
+xg_3m_tuned %>% arrange(mean_cv_mse) %>% head(5) 
+# selected params: nrounds = 500, max_depth = 5, subsample = 0.5, colsample_bytree = 0.7
+# noise error = 0.0087
+```
+
+```{r}
+fit_xgbtune_3m <- function(train_x, train_y, params) {
+  train_matrix <- as.matrix(train_x)
+  xgboost(data = train_matrix, label = train_y, booster = "gbtree", nrounds = 500, max_depth = 5, subsample = 0.5,
+            colsample_bytree = 0.7, eta = 0.3, verbose = 0, objective = "reg:squarederror", 
+            nthread = parallel::detectCores(), early_stopping_rounds = 10,tree_method = "hist")
+}
+
+xgbtune_rolling_results_3m <- perform_rolling_forecast(train_3m, test_3m, fit_xgbtune_3m, predict_xgb_3m, "y_lr_3m")
+xgbtune_level_results_3m <- level_price_results(xgbtune_rolling_results_3m, oilprices, testdates)
+mse_3m_xgbtune <- MSE(xgbtune_level_results_3m$pred_level, xgbtune_level_results_3m$actual_level)
+mse_3m_xgbtune
+```
+
+
+# Results 
+```{r}
+mse_test_results_3m <- data.frame(
+  model = c("AR(1)", "Tree", "rpart", "Bagging Default", "Bagging", "RF Default", "RF", "XGB Default", "XGB"),
+  mse_3m = c(mse_3m_ar1, mse_3m_tree, mse_3m_rpart, mse_3m_bag, mse_3m_bagtune,
+             mse_3m_ranger, mse_3m_rangertune, mse_3m_xgb, mse_3m_xgbtune)
+)
+mse_test_results_3m
+```
+
+```{r}
+#save.image(file = "3_month_trees_updated.RData")
+```
+
